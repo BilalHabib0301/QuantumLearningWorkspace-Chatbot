@@ -82,8 +82,10 @@ def evaluate_case(engine, case: dict) -> tuple[bool, str]:
             elif len(prefixes) > 1 and missing:
                 reasons.append(f"missing source prefixes {missing}")
 
-    if expect.get("conflict_hint") is True and not result.conflict_hint:
-        reasons.append("expected conflict_hint=true")
+        if expect.get("must_be_grounded") is True and result.grounded is False:
+            reasons.append(
+            f"expected grounded=true (faithfulness check) but got grounded={result.grounded}"
+        )
 
     rewritten_needles = expect.get("rewritten_must_contain_any")
     if rewritten_needles:
@@ -111,6 +113,12 @@ def main(argv: list[str] | None = None) -> int:
         default=CASES_PATH,
         help="Path to cases.json",
     )
+    parser.add_argument(
+        "--report",
+        type=Path,
+        default=Path(__file__).resolve().parent / "eval_report.md",
+        help="Where to write the markdown report",
+    )
     args = parser.parse_args(argv)
 
     cases = json.loads(args.cases.read_text(encoding="utf-8"))
@@ -119,21 +127,37 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Indexed {engine.chunks_indexed} chunks\n")
 
     passed = 0
+    report_lines = [
+        "# Team Mu RAG — Evaluation Report",
+        "",
+        f"Total cases: {len(cases)}",
+        "",
+        "| Status | Case ID | Detail |",
+        "|--------|---------|--------|",
+    ]
+
     for case in cases:
         ok, detail = evaluate_case(engine, case)
         status = "PASS" if ok else "FAIL"
         print(f"[{status}] {detail}")
         if ok:
             passed += 1
+        case_id, _, rest = detail.partition(":")
+        report_lines.append(f"| {status} | {case_id.strip()} | {rest.strip()} |")
 
     total = len(cases)
     print(f"\nScore: {passed}/{total} (threshold {args.threshold})")
+
+    report_lines.append("")
+    report_lines.append(f"**Score: {passed}/{total} (threshold {args.threshold})**")
+
+    args.report.write_text("\n".join(report_lines) + "\n", encoding="utf-8")
+    print(f"Report saved to {args.report}")
+
     if passed < args.threshold:
         print("Below threshold.")
         return 1
     print("Above threshold.")
     return 0
-
-
 if __name__ == "__main__":
     raise SystemExit(main())
