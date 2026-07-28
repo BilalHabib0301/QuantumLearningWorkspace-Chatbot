@@ -26,14 +26,22 @@ def create_collection(name: str = DEFAULT_COLLECTION_NAME):
     return client.create_collection(name=name)
 
 
-def add_chunks(collection, embedding_model: SentenceTransformer, chunks: list[dict]) -> None:
-    """Embed each chunk and add it to the collection with metadata."""
+def add_chunks(
+    collection,
+    embedding_model: SentenceTransformer,
+    chunks: list[dict],
+    user_id: str | None = None,
+) -> None:
+    """Embed each chunk and add it to the collection, optionally tagged with user_id."""
     if not chunks:
         return
 
     ids = [chunk["id"] for chunk in chunks]
     documents = [chunk["text"] for chunk in chunks]
-    metadatas = [chunk["metadata"] for chunk in chunks]
+    if user_id is not None:
+        metadatas = [{**chunk["metadata"], "user_id": user_id} for chunk in chunks]
+    else:
+        metadatas = [chunk["metadata"] for chunk in chunks]
     embeddings = embedding_model.encode(documents).tolist()
 
     collection.add(
@@ -49,9 +57,11 @@ def retrieve(
     embedding_model: SentenceTransformer,
     question: str,
     n_results: int = DEFAULT_TOP_K,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     """
-    Query the collection for the top-n chunks matching the question.
+    Query the collection for the top-n chunks matching the question,
+    optionally scoped to a single user_id.
 
     Returns a dict with:
       - documents: list[str]
@@ -60,10 +70,14 @@ def retrieve(
       - ids: list[str] | None
     """
     question_embedding = embedding_model.encode(question).tolist()
-    results = collection.query(
-        query_embeddings=[question_embedding],
-        n_results=n_results,
-    )
+    query_kwargs: dict[str, Any] = {
+        "query_embeddings": [question_embedding],
+        "n_results": n_results,
+    }
+    if user_id is not None:
+        query_kwargs["where"] = {"user_id": user_id}
+
+    results = collection.query(**query_kwargs)
 
     return {
         "documents": results["documents"][0] if results.get("documents") else [],
