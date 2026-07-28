@@ -241,6 +241,7 @@ def _stream_ask(
             include_sources=body.include_sources,
             rerank=body.rerank,
             multi_hop=body.multi_hop,
+            user_id=body.user_id,
         )
         timing.end_retrieval()
     except (ValueError, RuntimeError) as exc:
@@ -423,6 +424,7 @@ def ask_endpoint(
             include_sources=body.include_sources,
             rerank=body.rerank,
             multi_hop=body.multi_hop,
+            user_id=body.user_id,
         )
         timing.end_retrieval()
 

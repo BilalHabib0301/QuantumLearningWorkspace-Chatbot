@@ -562,6 +562,28 @@ def create_engine(
         max_distance=_env_float("MAX_DISTANCE", DEFAULT_MAX_DISTANCE),
     )
 
+def add_user_document(
+    engine: RagEngine,
+    file_path: Path,
+    user_id: str,
+) -> int:
+    """
+    Chunk and index a single document into the shared engine, scoped to user_id.
+    Used for per-user uploads (Phase 8), separate from the startup demo corpus.
+    Chunk ids are prefixed with user_id to avoid collisions if two users upload
+    files with the same name (or the same demo fixture, as in local testing).
+    Returns the number of chunks indexed.
+    """
+    path = Path(file_path)
+    if not path.exists():
+        raise FileNotFoundError(f"Document not found: {path}")
+    chunks = chunk_file(path)
+    for chunk in chunks:
+        chunk["id"] = f"{user_id}__{chunk['id']}"
+    add_chunks(engine.collection, engine.embedding_model, chunks, user_id=user_id)
+    engine.chunks_indexed += len(chunks)
+    return len(chunks)
+
 
 def _get_groq(engine: RagEngine) -> Groq:
     if engine._groq is not None:
@@ -720,6 +742,7 @@ def prepare_ask(
     include_sources: bool = True,
     rerank: bool | None = None,
     multi_hop: bool | None = None,
+    user_id: str | None = None,
 ) -> PreparedAsk:
     """
     Run rewrite → multi-hop retrieve → relevance gate.
@@ -761,9 +784,8 @@ def prepare_ask(
     for round_idx in range(max_rounds):
         hop_queries.append(current_query)
         round_results, client = _retrieve_round(
-            engine, client, current_query, k, do_rerank
+            engine, client, current_query, k, do_rerank, user_id=user_id
         )
-
         if round_idx == 0 and not is_relevant(
             round_results.get("distances"),
             max_distance=engine.max_distance,
@@ -826,6 +848,7 @@ def _retrieve_round(
     query: str,
     k: int,
     do_rerank: bool,
+    user_id: str | None = None,
 ) -> tuple[dict[str, Any], Groq | None]:
     n_retrieve = RERANK_CANDIDATE_COUNT if do_rerank else k
     n_retrieve = max(1, min(n_retrieve, max(engine.chunks_indexed, 1)))
@@ -834,6 +857,7 @@ def _retrieve_round(
         engine.embedding_model,
         query,
         n_results=n_retrieve,
+        user_id=user_id,
     )
     if do_rerank and len(results.get("ids") or []) > k:
         if client is None:
@@ -854,6 +878,7 @@ def ask(
     update_history: bool = False,
     rerank: bool | None = None,
     multi_hop: bool | None = None,
+    user_id: str | None = None,
 ) -> AskResult:
     """
     Full pipeline: prepare → sync answer → finalize (grounding).
@@ -866,6 +891,7 @@ def ask(
         include_sources=include_sources,
         rerank=rerank,
         multi_hop=multi_hop,
+        user_id=user_id,
     )
     if prepared.refused:
         if update_history and history is not None:
