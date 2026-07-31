@@ -73,6 +73,7 @@ class SourceInfo:
     distance: float | None
     preview: str
     source: str = ""
+    document: str = ""
 
 
 @dataclass
@@ -506,12 +507,16 @@ def _build_sources(results: dict[str, Any]) -> list[SourceInfo]:
         source_name = ""
         if metadatas and i < len(metadatas) and isinstance(metadatas[i], dict):
             source_name = str(metadatas[i].get("source") or "")
+        document_name = ""
+        if metadatas and i < len(metadatas) and isinstance(metadatas[i], dict):
+            document_name = str(metadatas[i].get("document") or "")
         sources.append(
             SourceInfo(
                 id=chunk_id,
                 distance=distance,
                 preview=chunk_preview(doc),
                 source=source_name,
+                document=document_name,
             )
         )
     return sources
@@ -907,3 +912,4 @@ def ask(
         update_history=update_history,
         history=history,
     )
+

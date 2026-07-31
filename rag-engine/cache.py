@@ -180,6 +180,7 @@ def ask_result_to_cache_entry(result: Any, include_sources: bool = True) -> Cach
                     "id": getattr(s, "id", ""),
                     "preview": getattr(s, "preview", ""),
                     "source": getattr(s, "source", ""),
+                    "document": getattr(s, "document", ""),
                 }
             )
     return CacheEntry(

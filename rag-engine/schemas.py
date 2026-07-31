@@ -68,6 +68,7 @@ class SourceItem(BaseModel):
     distance: float | None = None
     preview: str
     source: str = ""
+    document: str = ""
 
 
 class TimingInfo(BaseModel):
