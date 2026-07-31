@@ -1,6 +1,7 @@
 """Embed chunks with SentenceTransformer and store/query them in ChromaDB."""
 
 from __future__ import annotations
+import os
 
 from typing import Any
 
@@ -20,10 +21,16 @@ def load_embedding_model(model_name: str = DEFAULT_MODEL_NAME) -> SentenceTransf
     return SentenceTransformer(model_name)
 
 
-def create_collection(name: str = DEFAULT_COLLECTION_NAME):
-    """Create an in-memory Chroma collection (ephemeral for demo scripts)."""
-    client = chromadb.Client()
-    return client.create_collection(name=name)
+DEFAULT_CHROMA_PATH = os.getenv(
+    "CHROMA_DB_PATH",
+    r"C:\Dev\QuantumLearningWorkspace\shared_chroma_data",
+)
+
+
+def create_collection(name: str = DEFAULT_COLLECTION_NAME, path: str = None):
+    """Get or create a persistent Chroma collection shared across services."""
+    client = chromadb.PersistentClient(path=path or DEFAULT_CHROMA_PATH)
+    return client.get_or_create_collection(name=name)
 
 
 def add_chunks(
@@ -44,7 +51,7 @@ def add_chunks(
         metadatas = [chunk["metadata"] for chunk in chunks]
     embeddings = embedding_model.encode(documents).tolist()
 
-    collection.add(
+    collection.upsert(
         ids=ids,
         embeddings=embeddings,
         documents=documents,
@@ -146,3 +153,6 @@ def chunk_preview(text: str, max_words: int = 20) -> str:
     if len(words) <= max_words:
         return text
     return " ".join(words[:max_words]) + "..."
+
+
+

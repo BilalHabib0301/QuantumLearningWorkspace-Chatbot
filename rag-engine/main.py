@@ -89,6 +89,7 @@ def _sources_from_result(result: Any) -> tuple[list[SourceItem] | None, list[str
             distance=s.distance,
             preview=s.preview,
             source=getattr(s, "source", "") or "",
+            document=getattr(s, "document", "") or "",
         )
         for s in (result.sources or [])
     ]
@@ -142,6 +143,7 @@ def _cache_entry_to_result(entry: Any, top_k: int) -> Any:
             distance=s.get("distance"),
             preview=s.get("preview", ""),
             source=s.get("source", ""),
+            document=s.get("document", ""),
         )
         for s in entry.sources
     ]
@@ -327,7 +329,7 @@ async def lifespan(app: FastAPI):
     global _engine, _engine_ready
     _engine_ready = False
     load_env()
-    _engine = create_engine(collection_name="study_chunks_api")
+    _engine = create_engine(collection_name="study_chunks")
     _engine_ready = True
     yield
     _engine = None
@@ -497,3 +499,4 @@ def ask_stream_endpoint(
         event_generator(),
         media_type="application/x-ndjson",
     )
+
