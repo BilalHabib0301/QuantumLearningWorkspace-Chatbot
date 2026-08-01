@@ -29,7 +29,8 @@ DEFAULT_CHROMA_PATH = os.getenv(
 
 def create_collection(name: str = DEFAULT_COLLECTION_NAME, path: str = None):
     """Get or create a persistent Chroma collection shared across services."""
-    client = chromadb.PersistentClient(path=path or DEFAULT_CHROMA_PATH)
+    resolved_path = path or os.getenv("CHROMA_DB_PATH", DEFAULT_CHROMA_PATH)
+    client = chromadb.PersistentClient(path=resolved_path)
     return client.get_or_create_collection(name=name)
 
 
