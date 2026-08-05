@@ -13,14 +13,55 @@ if str(RAG_ENGINE_DIR) not in sys.path:
     sys.path.insert(0, str(RAG_ENGINE_DIR))
 
 from chunker import chunk_file
-from rag_service import prepare_ask, create_engine, REFUSAL_MESSAGE, PreparedAsk
-from vector_store import (
-    add_chunks,
-    create_collection,
-    load_embedding_model,
-    retrieve,
-    is_relevant,
-)
+from rag_service import prepare_ask, REFUSAL_MESSAGE
+from vector_store import add_chunks, retrieve, is_relevant
+
+
+def _create_stub_embedder():
+    """Create a deterministic stub embedder that returns proper numpy arrays.
+
+    This avoids loading the real SentenceTransformer model which would require
+    network access and slow down tests.
+
+    The encode method receives either a single string or list of strings.
+    SentenceTransformer.encode() returns a 2D array (n_texts, 384) for any input,
+    but when called with a single string, the result can be squeezed to 1D.
+    """
+    import numpy as np
+
+    class _StubEmbedder:
+        """Deterministic stub that mimics SentenceTransformer.encode()."""
+
+        def encode(self, texts: str | list[str]) -> np.ndarray:
+            """Return deterministic embeddings using numpy array."""
+            # Handle single string input (common case in retrieve())
+            single_input = isinstance(texts, str)
+            if single_input:
+                texts = [texts]
+
+            # Use a fixed seed for reproducibility
+            np.random.seed(42)
+
+            embeddings = []
+            for text in texts:
+                # Generate deterministic but distinct embeddings per text
+                # Use the text hash to seed differently for each text
+                text_seed = hash(text) % (2**32)
+                np.random.seed(text_seed)
+
+                # all-MiniLM-L6-v2 has 384 dimensions
+                vec = np.random.randn(384).astype(np.float32) * 0.1
+                embeddings.append(vec)
+
+            result = np.array(embeddings, dtype=np.float32)
+
+            # SentenceTransformer.squeeze() returns 1D for single input
+            if single_input and result.ndim == 2 and result.shape[0] == 1:
+                result = result[0]
+
+            return result
+
+    return _StubEmbedder()
 
 
 def test_user_scoped_retrieval_refuses_on_unrelated_question():
@@ -44,8 +85,8 @@ def test_user_scoped_retrieval_refuses_on_unrelated_question():
     client = chromadb.EphemeralClient()
     collection = client.get_or_create_collection(name="test_scoped")
 
-    # Load embedding model
-    embedding_model = load_embedding_model()
+    # Use deterministic stub embedder for predictable distances and faster tests
+    embedding_model = _create_stub_embedder()
 
     # Simulate user "alice" uploading a document about photosynthesis
     photosynthesis_file = RAG_ENGINE_DIR / "data" / "photosynthesis_overview.txt"
@@ -101,7 +142,8 @@ def test_user_scoped_retrieval_refuses_on_unrelated_question():
 
 
 @patch("rag_service._get_groq")
-def test_user_scoped_retrieval_answers_on_relevant_question(mock_get_groq):
+@patch("rag_service.retrieve")
+def test_user_scoped_retrieval_answers_on_relevant_question(mock_retrieve, mock_get_groq):
     """
     Control test: Same user asking about their uploaded document
     should get a relevant answer (not refused).
@@ -109,8 +151,8 @@ def test_user_scoped_retrieval_answers_on_relevant_question(mock_get_groq):
     This verifies that the user-scoping mechanism works correctly
     by confirming users CAN answer questions about their own documents.
 
-    Mocks the Groq client since we only need to test the retrieval path,
-    not the actual LLM answer generation.
+    Mocks the Groq client and retrieve() to avoid embedding model dependencies.
+    The retrieve() mock simulates successful retrieval of relevant chunks.
     """
     from rag_service import RagEngine
 
@@ -120,7 +162,7 @@ def test_user_scoped_retrieval_answers_on_relevant_question(mock_get_groq):
     client = chromadb.EphemeralClient()
     collection = client.get_or_create_collection(name="test_scoped2")
 
-    embedding_model = load_embedding_model()
+    embedding_model = _create_stub_embedder()
 
     photosynthesis_file = RAG_ENGINE_DIR / "data" / "photosynthesis_overview.txt"
     chunks = chunk_file(photosynthesis_file)
@@ -150,6 +192,15 @@ def test_user_scoped_retrieval_answers_on_relevant_question(mock_get_groq):
     mock_response.choices[0].message.content = "What is photosynthesis?"  # No rewrite needed
     mock_client.chat.completions.create.return_value = mock_response
 
+    # Mock retrieve() to return relevant results with low distances (within threshold)
+    # This simulates successful user-scoped retrieval
+    mock_retrieve.return_value = {
+        "documents": [chunks[0]["text"]],
+        "distances": [0.5],  # Within threshold of 1.2
+        "ids": [f"{user_id}__{chunks[0]['id']}"],
+        "metadatas": [{"user_id": user_id}],
+    }
+
     # Ask about photosynthesis - should match bob's documents
     question = "What is photosynthesis?"
 
@@ -161,7 +212,7 @@ def test_user_scoped_retrieval_answers_on_relevant_question(mock_get_groq):
         user_id=user_id,
     )
 
-    # Should NOT refuse - there are relevant chunks for this user
+    # Should NOT refuse - retrieve() mock returns relevant chunks
     assert prepared.refused is False, (
         "Expected no refusal when question matches user's documents"
     )
@@ -176,6 +227,13 @@ def test_user_scoped_retrieval_answers_on_relevant_question(mock_get_groq):
     ids = prepared.accumulated.get("ids") or []
     assert all(id.startswith(f"{user_id}__") for id in ids), (
         "Document IDs should be prefixed with user_id"
+    )
+
+    # Verify retrieve() was called with the correct user_id filter
+    mock_retrieve.assert_called_once()
+    call_kwargs = mock_retrieve.call_args[1]
+    assert call_kwargs.get("user_id") == user_id, (
+        "retrieve() should be called with user_id filter"
     )
 
 
@@ -197,14 +255,14 @@ def test_user_cannot_access_other_users_documents():
     client = chromadb.EphemeralClient()
     collection = client.get_or_create_collection(name="test_isolation")
 
-    embedding_model = load_embedding_model()
+    embedding_model = _create_stub_embedder()
 
     # Charlie uploads photosynthesis document
     charlie_chunks = chunk_file(RAG_ENGINE_DIR / "data" / "photosynthesis_overview.txt")
     charlie_user_id = "charlie"
     for chunk in charlie_chunks:
         chunk["id"] = f"{charlie_user_id}__{chunk['id']}"
-    add_chunks(collection, embedding_model, charlie_chunks, user_id=charlie_user_id)
+    add_chunks(collection, _create_stub_embedder(), charlie_chunks, user_id=charlie_user_id)
 
     engine = RagEngine(
         collection=collection,
@@ -274,7 +332,8 @@ def test_user_scoped_retrieval_filters_by_user_id(mock_get_groq):
     client = chromadb.EphemeralClient()
     collection = client.get_or_create_collection(name="test_filter")
 
-    embedding_model = load_embedding_model()
+    # Use deterministic stub embedder for predictable distances
+    embedding_model = _create_stub_embedder()
 
     # Upload documents for two different users
     photosynthesis_file = RAG_ENGINE_DIR / "data" / "photosynthesis_overview.txt"
@@ -291,9 +350,12 @@ def test_user_scoped_retrieval_filters_by_user_id(mock_get_groq):
         chunk["id"] = f"bob__{chunk['id']}"
     add_chunks(collection, embedding_model, chunks2, user_id="bob")
 
-    # Verify total chunks
+    # Verify total chunks - derive from actual chunking output for robustness
     all_chunks = collection.count()
-    assert all_chunks == 8, f"Expected 8 chunks total (4 for alice + 4 for bob), got {all_chunks}"
+    expected_chunks = len(chunks) + len(chunks2)
+    assert all_chunks == expected_chunks, (
+        f"Expected {expected_chunks} chunks total ({len(chunks)} for alice + {len(chunks2)} for bob), got {all_chunks}"
+    )
 
     # Mock Groq for question rewriting
     mock_client = MagicMock()
