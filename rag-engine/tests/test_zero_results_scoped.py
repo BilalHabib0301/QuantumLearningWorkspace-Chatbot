@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import sys
-import uuid
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -41,19 +40,14 @@ def test_user_scoped_retrieval_refuses_on_unrelated_question():
 
     import chromadb
 
-    # Use a unique collection name for this test
-    collection_name = f"test_scoped_{uuid.uuid4().hex[:8]}"
+    # Use in-memory ChromaDB to avoid writing to disk
+    client = chromadb.EphemeralClient()
+    collection = client.get_or_create_collection(name="test_scoped")
 
-    # Load embedding model first (loaded once for all tests in this file)
+    # Load embedding model
     embedding_model = load_embedding_model()
 
-    # Get persistent client (same as the main engine uses)
-    from vector_store import DEFAULT_CHROMA_PATH
-    client = chromadb.PersistentClient(path=DEFAULT_CHROMA_PATH)
-    collection = client.get_or_create_collection(name=collection_name)
-
     # Simulate user "alice" uploading a document about photosynthesis
-    # (This mimics what add_user_document does in rag_service.py)
     photosynthesis_file = RAG_ENGINE_DIR / "data" / "photosynthesis_overview.txt"
     chunks = chunk_file(photosynthesis_file)
 
@@ -105,9 +99,6 @@ def test_user_scoped_retrieval_refuses_on_unrelated_question():
         f"Expected refusal message '{REFUSAL_MESSAGE}', got '{prepared.refusal_answer}'"
     )
 
-    # Cleanup: delete the collection
-    client.delete_collection(name=collection_name)
-
 
 @patch("rag_service._get_groq")
 def test_user_scoped_retrieval_answers_on_relevant_question(mock_get_groq):
@@ -125,13 +116,9 @@ def test_user_scoped_retrieval_answers_on_relevant_question(mock_get_groq):
 
     import chromadb
 
-    # Use a unique collection name for this test
-    collection_name = f"test_scoped_{uuid.uuid4().hex[:8]}"
-
-    # Get persistent client
-    from vector_store import DEFAULT_CHROMA_PATH
-    client = chromadb.PersistentClient(path=DEFAULT_CHROMA_PATH)
-    collection = client.get_or_create_collection(name=collection_name)
+    # Use in-memory ChromaDB to avoid writing to disk
+    client = chromadb.EphemeralClient()
+    collection = client.get_or_create_collection(name="test_scoped2")
 
     embedding_model = load_embedding_model()
 
@@ -191,9 +178,6 @@ def test_user_scoped_retrieval_answers_on_relevant_question(mock_get_groq):
         "Document IDs should be prefixed with user_id"
     )
 
-    # Cleanup: delete the collection
-    client.delete_collection(name=collection_name)
-
 
 def test_user_cannot_access_other_users_documents():
     """
@@ -209,13 +193,9 @@ def test_user_cannot_access_other_users_documents():
 
     import chromadb
 
-    # Use a unique collection name for this test
-    collection_name = f"test_isolation_{uuid.uuid4().hex[:8]}"
-
-    # Get persistent client
-    from vector_store import DEFAULT_CHROMA_PATH
-    client = chromadb.PersistentClient(path=DEFAULT_CHROMA_PATH)
-    collection = client.get_or_create_collection(name=collection_name)
+    # Use in-memory ChromaDB to avoid writing to disk
+    client = chromadb.EphemeralClient()
+    collection = client.get_or_create_collection(name="test_isolation")
 
     embedding_model = load_embedding_model()
 
@@ -253,9 +233,6 @@ def test_user_cannot_access_other_users_documents():
         "User 'alice' should be refused when trying to query 'charlie's documents"
     )
 
-    # Cleanup: delete the collection
-    client.delete_collection(name=collection_name)
-
 
 def test_is_relevant_uses_l2_distance_threshold():
     """
@@ -290,15 +267,12 @@ def test_user_scoped_retrieval_filters_by_user_id(mock_get_groq):
     This confirms that when user_id is specified, the query includes
     a 'where' filter that restricts results to that user's documents only.
     """
+
     import chromadb
 
-    # Use a unique collection name for this test
-    collection_name = f"test_filter_{uuid.uuid4().hex[:8]}"
-
-    # Get persistent client
-    from vector_store import DEFAULT_CHROMA_PATH
-    client = chromadb.PersistentClient(path=DEFAULT_CHROMA_PATH)
-    collection = client.get_or_create_collection(name=collection_name)
+    # Use in-memory ChromaDB to avoid writing to disk
+    client = chromadb.EphemeralClient()
+    collection = client.get_or_create_collection(name="test_filter")
 
     embedding_model = load_embedding_model()
 
@@ -363,6 +337,3 @@ def test_user_scoped_retrieval_filters_by_user_id(mock_get_groq):
     assert all("alice__" not in id for id in bob_ids), (
         "Bob should not see alice's chunks"
     )
-
-    # Cleanup: delete the collection
-    client.delete_collection(name=collection_name)
