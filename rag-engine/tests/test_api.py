@@ -50,6 +50,15 @@ def test_ask_empty_question_400(client):
     assert resp.status_code == 422
 
 
+def test_ask_question_too_long_422(client):
+    """Test that questions over 2000 characters are rejected with 422."""
+    long_question = "x" * 2001
+    resp = client.post("/ask", json={"question": long_question, "user_id": "test-user"})
+    assert resp.status_code == 422
+    data = resp.json()
+    assert "string_too_long" in data["detail"][0]["type"]
+
+
 @patch("main.prepare_ask")
 def test_ask_rate_limit_429(mock_prepare, client):
     from rate_limiter import RateLimiter
