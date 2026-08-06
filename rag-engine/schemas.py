@@ -15,7 +15,7 @@ class HistoryMessage(BaseModel):
 
 
 class AskRequest(BaseModel):
-    question: str = Field(..., min_length=1, description="User question to answer")
+    question: str = Field(..., min_length=1, max_length=2000, description="User question to answer")
     user_id: str = Field(
         ...,
         min_length=1,
