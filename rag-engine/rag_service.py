@@ -15,6 +15,12 @@ from typing import Any, Iterator
 
 from dotenv import load_dotenv
 from groq import Groq
+from groq import (
+    APIConnectionError,
+    APIStatusError,
+    APITimeoutError,
+    RateLimitError,
+)
 
 from chunker import chunk_data_directory, chunk_file
 from vector_store import (
@@ -164,6 +170,25 @@ def _history_nonempty(history: list[dict]) -> bool:
     return any((m.get("content") or "").strip() for m in history)
 
 
+def _call_groq_safe(client: Groq, **kwargs):
+    """Call Groq chat completions, turning known failure modes into a
+    clear RuntimeError instead of letting them crash the request."""
+    try:
+        return client.chat.completions.create(**kwargs)
+    except (APITimeoutError, APIConnectionError) as exc:
+        raise RuntimeError(
+            "The AI service is temporarily unavailable. Please try again."
+        ) from exc
+    except RateLimitError as exc:
+        raise RuntimeError(
+            "The AI service is busy right now. Please try again shortly."
+        ) from exc
+    except APIStatusError as exc:
+        raise RuntimeError(
+            "The AI service returned an error. Please try again."
+        ) from exc
+
+
 def rewrite_question(client: Groq | None, history: list[dict], question: str) -> str:
     """Turn a follow-up into a standalone search query using conversation history."""
     if not _history_nonempty(history):
@@ -197,7 +222,7 @@ def rewrite_question(client: Groq | None, history: list[dict], question: str) ->
             ),
         },
     ]
-    response = client.chat.completions.create(
+    response = _call_groq_safe(client,
         model=GROQ_MODEL,
         messages=messages,
         temperature=0.0,
@@ -381,7 +406,7 @@ def rerank_chunks(
             "content": f"Query: {question}\n\nCandidates:\n{listing}\n\nBest chunk ids:",
         },
     ]
-    response = client.chat.completions.create(
+    response = _call_groq_safe(client,
         model=GROQ_MODEL,
         messages=messages,
         temperature=0.0,
@@ -423,7 +448,7 @@ def decide_need_more(
             ),
         },
     ]
-    response = client.chat.completions.create(
+    response = _call_groq_safe(client,
         model=GROQ_MODEL,
         messages=messages,
         temperature=0.0,
@@ -485,7 +510,7 @@ def check_grounding(client: Groq, retrieved_text: str, answer: str) -> bool:
             ),
         },
     ]
-    response = client.chat.completions.create(
+    response = _call_groq_safe(client,
         model=GROQ_MODEL,
         messages=messages,
         temperature=0.0,
@@ -619,7 +644,7 @@ def _generate_answer(
     strict: bool = False,
 ) -> str:
     messages = build_messages(history, retrieved_text, question, strict=strict)
-    response = client.chat.completions.create(
+    response = _call_groq_safe(client,
         model=GROQ_MODEL,
         messages=messages,
         temperature=0.2 if strict else 0.3,
@@ -654,7 +679,7 @@ def stream_answer_tokens(
         prepared.question,
         strict=False,
     )
-    stream = client.chat.completions.create(
+    stream = _call_groq_safe(client,
         model=GROQ_MODEL,
         messages=messages,
         temperature=0.3,
@@ -912,4 +937,7 @@ def ask(
         update_history=update_history,
         history=history,
     )
+
+
+
 
