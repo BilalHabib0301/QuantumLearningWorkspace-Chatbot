@@ -34,6 +34,7 @@ from vector_store import (
     is_relevant,
     load_embedding_model,
     retrieve,
+    user_has_documents,
 )
 
 RAG_ENGINE_DIR = Path(__file__).resolve().parent
@@ -41,6 +42,7 @@ DATA_DIR = RAG_ENGINE_DIR / "data"
 DATA_FILE = DATA_DIR / "photosynthesis_overview.txt"
 HISTORY_TURN_CAP = 4
 REFUSAL_MESSAGE = "I don't have enough information to answer that"
+NO_DOCUMENTS_MESSAGE = "You haven't uploaded any documents yet. Please upload a PDF, notes, or a link before asking a question."
 GROQ_MODEL = "llama-3.3-70b-versatile"
 MIN_TOP_K = 1
 MAX_TOP_K = 8
@@ -94,6 +96,7 @@ class AskResult:
     retrieval_rounds: int = 0
     hop_queries: list[str] = field(default_factory=list)
     conflict_hint: bool = False
+    no_documents: bool = False
 
 
 @dataclass
@@ -109,6 +112,7 @@ class PreparedAsk:
     accumulated: dict[str, Any]
     refused: bool = False
     refusal_answer: str = ""
+    no_documents: bool = False
     include_sources: bool = True
     client: Groq | None = None
 
@@ -730,6 +734,7 @@ def _refusal_result(
         retrieval_rounds=len(prepared.hop_queries) or 1,
         hop_queries=list(prepared.hop_queries),
         conflict_hint=False,
+        no_documents=prepared.no_documents,
     )
 
 
@@ -785,6 +790,22 @@ def prepare_ask(
 
     k = clamp_top_k(top_k, default=engine.default_top_k)
     hist = list(history) if history is not None else []
+
+    if user_id is not None and not user_has_documents(engine.collection, user_id):
+        return PreparedAsk(
+            question=cleaned,
+            history=hist,
+            top_k=k,
+            rewritten_question=cleaned,
+            hop_queries=[],
+            retrieved_text="",
+            accumulated={"documents": [], "distances": [], "ids": [], "metadatas": []},
+            refused=True,
+            refusal_answer=NO_DOCUMENTS_MESSAGE,
+            no_documents=True,
+            include_sources=include_sources,
+            client=None,
+        )
 
     env_rerank = _env_bool("ENABLE_RERANK", True)
     do_rerank = env_rerank if rerank is None else (bool(rerank) and env_rerank)

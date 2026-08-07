@@ -121,16 +121,9 @@ def _result_to_response(
     return AskResponse(
         answer=result.answer,
         refused=result.refused,
+        no_documents=result.no_documents,
         top_k=result.top_k,
         sources=sources,
-        source_ids=source_ids,
-        rewritten_question=result.rewritten_question,
-        grounded=result.grounded,
-        retrieval_rounds=result.retrieval_rounds,
-        hop_queries=list(result.hop_queries),
-        conflict_hint=result.conflict_hint,
-        cached=cached,
-        timing=timing_info,
     )
 
 
