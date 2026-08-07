@@ -110,6 +110,18 @@ def is_relevant(
     return min(distances) <= max_distance
 
 
+def user_has_documents(collection, user_id: str) -> bool:
+    """
+    Check whether a given user has ANY chunks stored at all,
+    regardless of the question being asked.
+
+    Used to distinguish "no documents uploaded yet" from
+    "documents exist but nothing matched this question."
+    """
+    result = collection.get(where={"user_id": user_id}, limit=1)
+    return len(result.get("ids", [])) > 0
+
+
 def format_retrieved_chunks(documents: list[str]) -> str:
     """Join one or more retrieved chunks for the LLM prompt (legacy simple format)."""
     if not documents:

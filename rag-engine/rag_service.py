@@ -15,6 +15,12 @@ from typing import Any, Iterator
 
 from dotenv import load_dotenv
 from groq import Groq
+from groq import (
+    APIConnectionError,
+    APIStatusError,
+    APITimeoutError,
+    RateLimitError,
+)
 
 from chunker import chunk_data_directory, chunk_file
 from vector_store import (
@@ -28,6 +34,7 @@ from vector_store import (
     is_relevant,
     load_embedding_model,
     retrieve,
+    user_has_documents,
 )
 
 RAG_ENGINE_DIR = Path(__file__).resolve().parent
@@ -35,6 +42,7 @@ DATA_DIR = RAG_ENGINE_DIR / "data"
 DATA_FILE = DATA_DIR / "photosynthesis_overview.txt"
 HISTORY_TURN_CAP = 4
 REFUSAL_MESSAGE = "I don't have enough information to answer that"
+NO_DOCUMENTS_MESSAGE = "You haven't uploaded any documents yet. Please upload a PDF, notes, or a link before asking a question."
 GROQ_MODEL = "llama-3.3-70b-versatile"
 MIN_TOP_K = 1
 MAX_TOP_K = 8
@@ -88,6 +96,7 @@ class AskResult:
     retrieval_rounds: int = 0
     hop_queries: list[str] = field(default_factory=list)
     conflict_hint: bool = False
+    no_documents: bool = False
 
 
 @dataclass
@@ -103,6 +112,7 @@ class PreparedAsk:
     accumulated: dict[str, Any]
     refused: bool = False
     refusal_answer: str = ""
+    no_documents: bool = False
     include_sources: bool = True
     client: Groq | None = None
 
@@ -164,6 +174,25 @@ def _history_nonempty(history: list[dict]) -> bool:
     return any((m.get("content") or "").strip() for m in history)
 
 
+def _call_groq_safe(client: Groq, **kwargs):
+    """Call Groq chat completions, turning known failure modes into a
+    clear RuntimeError instead of letting them crash the request."""
+    try:
+        return client.chat.completions.create(**kwargs)
+    except (APITimeoutError, APIConnectionError) as exc:
+        raise RuntimeError(
+            "The AI service is temporarily unavailable. Please try again."
+        ) from exc
+    except RateLimitError as exc:
+        raise RuntimeError(
+            "The AI service is busy right now. Please try again shortly."
+        ) from exc
+    except APIStatusError as exc:
+        raise RuntimeError(
+            "The AI service returned an error. Please try again."
+        ) from exc
+
+
 def rewrite_question(client: Groq | None, history: list[dict], question: str) -> str:
     """Turn a follow-up into a standalone search query using conversation history."""
     if not _history_nonempty(history):
@@ -197,7 +226,7 @@ def rewrite_question(client: Groq | None, history: list[dict], question: str) ->
             ),
         },
     ]
-    response = client.chat.completions.create(
+    response = _call_groq_safe(client,
         model=GROQ_MODEL,
         messages=messages,
         temperature=0.0,
@@ -381,7 +410,7 @@ def rerank_chunks(
             "content": f"Query: {question}\n\nCandidates:\n{listing}\n\nBest chunk ids:",
         },
     ]
-    response = client.chat.completions.create(
+    response = _call_groq_safe(client,
         model=GROQ_MODEL,
         messages=messages,
         temperature=0.0,
@@ -423,7 +452,7 @@ def decide_need_more(
             ),
         },
     ]
-    response = client.chat.completions.create(
+    response = _call_groq_safe(client,
         model=GROQ_MODEL,
         messages=messages,
         temperature=0.0,
@@ -485,7 +514,7 @@ def check_grounding(client: Groq, retrieved_text: str, answer: str) -> bool:
             ),
         },
     ]
-    response = client.chat.completions.create(
+    response = _call_groq_safe(client,
         model=GROQ_MODEL,
         messages=messages,
         temperature=0.0,
@@ -619,7 +648,7 @@ def _generate_answer(
     strict: bool = False,
 ) -> str:
     messages = build_messages(history, retrieved_text, question, strict=strict)
-    response = client.chat.completions.create(
+    response = _call_groq_safe(client,
         model=GROQ_MODEL,
         messages=messages,
         temperature=0.2 if strict else 0.3,
@@ -654,7 +683,7 @@ def stream_answer_tokens(
         prepared.question,
         strict=False,
     )
-    stream = client.chat.completions.create(
+    stream = _call_groq_safe(client,
         model=GROQ_MODEL,
         messages=messages,
         temperature=0.3,
@@ -705,6 +734,7 @@ def _refusal_result(
         retrieval_rounds=len(prepared.hop_queries) or 1,
         hop_queries=list(prepared.hop_queries),
         conflict_hint=False,
+        no_documents=prepared.no_documents,
     )
 
 
@@ -760,6 +790,22 @@ def prepare_ask(
 
     k = clamp_top_k(top_k, default=engine.default_top_k)
     hist = list(history) if history is not None else []
+
+    if user_id is not None and not user_has_documents(engine.collection, user_id):
+        return PreparedAsk(
+            question=cleaned,
+            history=hist,
+            top_k=k,
+            rewritten_question=cleaned,
+            hop_queries=[],
+            retrieved_text="",
+            accumulated={"documents": [], "distances": [], "ids": [], "metadatas": []},
+            refused=True,
+            refusal_answer=NO_DOCUMENTS_MESSAGE,
+            no_documents=True,
+            include_sources=include_sources,
+            client=None,
+        )
 
     env_rerank = _env_bool("ENABLE_RERANK", True)
     do_rerank = env_rerank if rerank is None else (bool(rerank) and env_rerank)
@@ -912,4 +958,7 @@ def ask(
         update_history=update_history,
         history=history,
     )
+
+
+
 

@@ -81,6 +81,7 @@ class TimingInfo(BaseModel):
 class AskResponse(BaseModel):
     answer: str
     refused: bool = False
+    no_documents: bool = False
     top_k: int = DEFAULT_TOP_K
     sources: list[SourceItem] | None = None
     source_ids: list[str] = Field(default_factory=list)
