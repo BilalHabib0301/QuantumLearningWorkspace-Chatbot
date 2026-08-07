@@ -24,3 +24,4 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["rag-engine/tests"]
 pythonpath = ["rag-engine"]
+addopts = "--ignore=rag_venv"
