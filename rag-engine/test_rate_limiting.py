@@ -3,14 +3,20 @@
 This script verifies:
 1. Same user hitting rate limit gets 429 after RATE_LIMIT_MAX requests
 2. Different user is NOT rate-limited by another user's requests
+3. Spoofing attempts using deprecated X-User-Id are rejected
 """
 
 import requests
 import time
 import sys
+import jwt
 
 BASE_URL = "http://127.0.0.1:8001"
 RATE_LIMIT_MAX = 10  # From .env RATE_LIMIT_MAX
+JWT_SECRET = "test-secret"  # Must match server configuration during test
+
+def generate_token(user_id):
+    return jwt.encode({"sub": user_id}, JWT_SECRET, algorithm="HS256")
 
 def test_same_user_rate_limiting():
     """Test that same user gets 429 after exceeding rate limit."""
@@ -19,10 +25,9 @@ def test_same_user_rate_limiting():
     print("=" * 60)
 
     user_id = "test-user-1"
-    headers = {"X-User-Id": user_id}
+    headers = {"Authorization": f"Bearer {generate_token(user_id)}"}
     payload = {
         "question": "What is quantum computing?",
-        "user_id": user_id
     }
 
     successes = 0
@@ -61,9 +66,6 @@ def test_same_user_rate_limiting():
     print(f"Results: {successes} successes, {failures} rate-limited/errors")
 
     # Verify the rate limiter kicked in at the right place
-    expected_success = RATE_LIMIT_MAX
-    expected_429_at = RATE_LIMIT_MAX + 1
-
     if failures >= 1:
         print("PASS: Rate limiting is working - at least one request was rate-limited")
         return True
@@ -79,18 +81,16 @@ def test_different_user_isolation():
     print("TEST 2: Different-user isolation")
     print("=" * 60)
 
-    # First user - they've been making requests, may be rate limited
+    # First user - already tested, might be rate limited
     user1_id = "test-user-1"
 
     # Second user - completely different user
     user2_id = "test-user-2"
-    headers = {"X-User-Id": user2_id}
+    headers = {"Authorization": f"Bearer {generate_token(user2_id)}"}
     payload = {
         "question": "What is quantum computing?",
-        "user_id": user2_id
     }
 
-    print(f"User 1 ('{user1_id}') has been making requests and may be rate limited")
     print(f"Testing user 2 ('{user2_id}') with fresh requests...")
     print()
 
@@ -112,7 +112,7 @@ def test_different_user_isolation():
                 print(f"User 2, Request {i+1}: HTTP {response.status_code} (Too Many Requests)")
                 print(f"         WARNING: User 2 was rate-limited when they shouldn't be!")
             else:
-                print(f"User 2, Request {i+1}: HTTP {response.status_code} - ERROR")
+                print(f"User 2, Request {i+1}: HTTP {response.status_code} - ERROR: {response.text[:100]}")
 
         except Exception as e:
             print(f"User 2, Request {i+1}: EXCEPTION - {e}")
@@ -126,67 +126,31 @@ def test_different_user_isolation():
         return False
 
 
-def test_header_body_mismatch():
-    """Test what happens when X-User-Id header and body user_id don't match."""
+def test_spoof_attempt_rejected():
+    """Test that X-User-Id header without JWT is rejected (no bypass)."""
     print()
     print("=" * 60)
-    print("TEST 3: Header/body user_id mismatch")
+    print("TEST 3: X-User-Id spoof attempt rejection")
     print("=" * 60)
 
-    user1_id = "user-a"  # Will be in header
-    user2_id = "user-b"  # Will be in body
+    # Attempt to use the old header without a JWT
+    headers = {"X-User-Id": "attacker"}
+    payload = {"question": "What is quantum computing?"}
 
-    # Request with mismatched user_ids
-    headers = {"X-User-Id": user1_id}
-    payload = {
-        "question": "What is quantum computing?",
-        "user_id": user2_id  # Different from header
-    }
-
-    print(f"Header X-User-Id: '{user1_id}'")
-    print(f"Body user_id:     '{user2_id}'")
-    print()
-
-    # Make 11 requests to ensure rate limit would hit user-a if they were tracked
-    for i in range(RATE_LIMIT_MAX + 1):
-        try:
-            response = requests.post(
-                f"{BASE_URL}/ask",
-                json=payload,
-                headers=headers,
-                timeout=30
-            )
-
-            if i == 0:
-                print(f"Request 1: HTTP {response.status_code}")
-
-        except Exception as e:
-            print(f"Request {i+1}: EXCEPTION - {e}")
-
-    # Now check if user-a is rate-limited (header identity)
-    headers_user_a = {"X-User-Id": user1_id}
-    payload_user_a = {
-        "question": "What is quantum computing?",
-        "user_id": user1_id  # Now matching
-    }
-
-    print()
-    print(f"Now sending request as user-a (same as original header)...")
+    print("Attempting to use deprecated X-User-Id header without JWT...")
     response = requests.post(
         f"{BASE_URL}/ask",
-        json=payload_user_a,
-        headers=headers_user_a,
+        json=payload,
+        headers=headers,
         timeout=30
     )
 
-    if response.status_code == 429:
-        print(f"Result: HTTP 429 - Header identity (X-User-Id) is used for rate limiting")
-        print(f"        user-a is rate-limited (body user_id was ignored)")
-        return True, "header_used"
+    if response.status_code == 401:
+        print("PASS: Request rejected with 401 (Unauthorized) as expected")
+        return True
     else:
-        print(f"Result: HTTP {response.status_code}")
-        print(f"        WARNING: Header/body mismatch behavior is unclear")
-        return True, "unclear"
+        print(f"FAIL: Expected 401, got {response.status_code}")
+        return False
 
 
 def main():
@@ -197,7 +161,7 @@ def main():
 
     test1_pass = test_same_user_rate_limiting()
     test2_pass = test_different_user_isolation()
-    test3_pass, mismatch_behavior = test_header_body_mismatch()
+    test3_pass = test_spoof_attempt_rejected()
 
     print()
     print("=" * 60)
@@ -205,15 +169,14 @@ def main():
     print("=" * 60)
     print(f"Test 1 (Same-user rate limiting): {'PASS' if test1_pass else 'FAIL'}")
     print(f"Test 2 (Different-user isolation): {'PASS' if test2_pass else 'FAIL'}")
-    print(f"Test 3 (Header/body mismatch): {'PASS' if test3_pass else 'FAIL'}")
-    print(f"  Mismatch behavior: {mismatch_behavior}")
+    print(f"Test 3 (Spoof rejection): {'PASS' if test3_pass else 'FAIL'}")
     print()
 
-    if test1_pass and test2_pass:
-        print("OVERALL: PASS - Rate limiting is working correctly")
+    if test1_pass and test2_pass and test3_pass:
+        print("OVERALL: PASS - Rate limiting is working correctly and secured")
         return 0
     else:
-        print("OVERALL: FAIL - Rate limiting has issues")
+        print("OVERALL: FAIL - Rate limiting or security has issues")
         return 1
 
 
