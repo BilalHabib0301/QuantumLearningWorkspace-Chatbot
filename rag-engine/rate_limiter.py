@@ -6,7 +6,8 @@ import os
 import time
 from collections import defaultdict, deque
 
-from fastapi import HTTPException, Request
+from fastapi import Depends, HTTPException, Request
+from auth import get_current_user_email
 
 
 def _env_int(name: str, default: int) -> int:
@@ -51,15 +52,16 @@ class RateLimiter:
                 self._redis = None
                 self.backend = "memory"
 
-    def _client_key(self, request: Request) -> str:
-        user_id = request.headers.get("X-User-Id", "").strip()
+    def _client_key(self, user_id: str | None = None) -> str:
         if user_id:
             return f"user:{user_id}"
-        host = request.client.host if request.client else "unknown"
-        return f"ip:{host}"
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required for rate limiting.",
+        )
 
-    def check(self, request: Request) -> None:
-        key = self._client_key(request)
+    def check(self, request: Request, user_id: str | None = None) -> None:
+        key = self._client_key(user_id=user_id)
         if self._redis is not None:
             self._check_redis(key)
             return
@@ -103,6 +105,9 @@ class RateLimiter:
 rate_limiter = RateLimiter()
 
 
-def check_rate_limit(request: Request) -> None:
-    """FastAPI dependency: enforce per-user rate limits."""
-    rate_limiter.check(request)
+def check_rate_limit(
+    request: Request,
+    current_user_email: str = Depends(get_current_user_email),
+) -> None:
+    """FastAPI dependency: enforce per-user rate limits using the authenticated user identity."""
+    rate_limiter.check(request, user_id=current_user_email)
