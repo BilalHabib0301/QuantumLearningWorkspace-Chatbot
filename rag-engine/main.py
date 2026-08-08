@@ -32,6 +32,7 @@ from rag_service import (
     stream_answer_tokens,
 )
 from schemas import AskRequest, AskResponse, HealthResponse, SourceItem, TimingInfo
+from auth import get_current_user_email
 from timing_logger import TimingRecord
 
 _engine: RagEngine | None = None
@@ -236,7 +237,7 @@ def _stream_ask(
             include_sources=body.include_sources,
             rerank=body.rerank,
             multi_hop=body.multi_hop,
-            user_id=body.user_id,
+            user_id=current_user_email,
         )
         timing.end_retrieval()
     except (ValueError, RuntimeError) as exc:
@@ -385,6 +386,7 @@ def ask_endpoint(
     request: Request,
     response: Response,
     _: None = Depends(check_rate_limit),
+    current_user_email: str = Depends(get_current_user_email),
 ) -> AskResponse:
     engine = get_engine()
     timing = TimingRecord()
@@ -419,7 +421,7 @@ def ask_endpoint(
             include_sources=body.include_sources,
             rerank=body.rerank,
             multi_hop=body.multi_hop,
-            user_id=body.user_id,
+            user_id=current_user_email,
         )
         timing.end_retrieval()
 
@@ -477,6 +479,7 @@ def ask_stream_endpoint(
     body: AskRequest,
     request: Request,
     _: None = Depends(check_rate_limit),
+    current_user_email: str = Depends(get_current_user_email),
 ):
     engine = get_engine()
 
@@ -492,4 +495,5 @@ def ask_stream_endpoint(
         event_generator(),
         media_type="application/x-ndjson",
     )
+
 
