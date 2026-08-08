@@ -16,11 +16,6 @@ class HistoryMessage(BaseModel):
 
 class AskRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=2000, description="User question to answer")
-    user_id: str = Field(
-        ...,
-        min_length=1,
-        description="Authenticated user ID; retrieval is scoped to this user's documents only",
-    )
     history: list[HistoryMessage] | None = Field(
         default=None,
         description="Optional prior conversation turns (user/assistant pairs)",
