@@ -14,15 +14,18 @@ import os
 from contextlib import asynccontextmanager
 from typing import Any, Iterator
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+import tempfile
+from pathlib import Path
 
 from cache import AnswerCache, answer_cache, ask_result_to_cache_entry
 from rate_limiter import check_rate_limit, rate_limiter
 from rag_service import (
     RagEngine,
     SourceInfo,
+    add_user_document,
     ask,
     create_engine,
     finalize_ask,
@@ -70,6 +73,7 @@ def _history_list(body: AskRequest) -> list[dict] | None:
 
 def _cache_key(body: AskRequest) -> str:
     return AnswerCache.make_key(
+        body.user_id,
         body.question,
         _history_list(body),
         body.top_k,
@@ -77,6 +81,8 @@ def _cache_key(body: AskRequest) -> str:
         body.multi_hop,
         body.include_sources,
     )
+
+    
 
 
 def _sources_from_result(result: Any) -> tuple[list[SourceItem] | None, list[str]]:
@@ -473,6 +479,82 @@ def ask_endpoint(
         include_sources=body.include_sources,
     )
 
+@app.post("/ingest/pdf")
+async def ingest_pdf(
+    file: UploadFile = File(...),
+    user_id: str = Form(...),
+):
+    """
+    Receive a PDF from the web backend, index it into ChromaDB,
+    and scope all chunks to the authenticated user.
+    """
+    engine = get_engine()
+
+    if not user_id.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="user_id is required",
+        )
+
+    if not file.filename:
+        raise HTTPException(
+            status_code=400,
+            detail="Filename is required",
+        )
+
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(
+            status_code=400,
+            detail="Only PDF files are supported",
+        )
+
+    temp_path: Path | None = None
+
+    try:
+        suffix = Path(file.filename).suffix or ".pdf"
+
+        with tempfile.NamedTemporaryFile(
+            delete=False,
+            suffix=suffix,
+        ) as temp_file:
+            temp_path = Path(temp_file.name)
+
+            while chunk := await file.read(1024 * 1024):
+                temp_file.write(chunk)
+
+        chunks_indexed = add_user_document(
+            engine=engine,
+            file_path=temp_path,
+            user_id=user_id.strip(),
+        )
+
+        return {
+            "message": "PDF ingested successfully",
+            "filename": file.filename,
+            "user_id": user_id.strip(),
+            "chunks_indexed": chunks_indexed,
+        }
+
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=str(exc),
+        ) from exc
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"PDF ingestion failed: {exc}",
+        ) from exc
+
+    finally:
+        if temp_path is not None:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+        await file.close()
 
 @app.post("/ask/stream")
 def ask_stream_endpoint(
