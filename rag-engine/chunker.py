@@ -16,8 +16,21 @@ SOURCE_SLUGS: dict[str, str] = {
 
 
 def load_text(path: str | Path) -> str:
-    """Load a UTF-8 text file and normalize line endings."""
-    return Path(path).read_text(encoding="utf-8").strip()
+    """Load text from TXT or PDF files."""
+    path = Path(path)
+
+    if path.suffix.lower() == ".pdf":
+        import pymupdf
+
+        doc = pymupdf.open(path)
+        try:
+            text = "\n\n".join(page.get_text() for page in doc)
+        finally:
+            doc.close()
+
+        return text.strip()
+
+    return path.read_text(encoding="utf-8").strip()
 
 
 def source_slug_for_file(path: str | Path) -> str:

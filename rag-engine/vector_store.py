@@ -13,7 +13,7 @@ DEFAULT_COLLECTION_NAME = "study_chunks"
 DEFAULT_TOP_K = 4
 # Chroma default space is L2; lower distance = more similar.
 # Tuned so on-topic photosynthesis questions pass and off-topic ones refuse.
-DEFAULT_MAX_DISTANCE = 1.2
+DEFAULT_MAX_DISTANCE = 1.8
 
 
 def load_embedding_model(model_name: str = DEFAULT_MODEL_NAME) -> SentenceTransformer:
