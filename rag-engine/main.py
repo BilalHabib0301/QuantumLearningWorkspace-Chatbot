@@ -56,10 +56,11 @@ def _skip_cache(request: Request, body: AskRequest) -> bool:
     return request.headers.get("X-Skip-Cache", "").strip() in {"1", "true", "yes"}
 
 
-def _user_label(request: Request) -> str:
-    return request.headers.get("X-User-Id", "").strip() or (
-        request.client.host if request.client else ""
-    )
+def _user_label(request: Request, current_user_email: str | None = None) -> str:
+    # Prefer JWT user email if available (from dependency injection)
+    if current_user_email:
+        return current_user_email.strip()
+    return ""
 
 
 def _history_list(body: AskRequest) -> list[dict] | None:
