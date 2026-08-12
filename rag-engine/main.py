@@ -188,9 +188,10 @@ def _stream_ask(
     engine: RagEngine,
     body: AskRequest,
     request: Request,
+    current_user_email: str,
 ) -> Iterator[str]:
     timing = TimingRecord()
-    user = _user_label(request)
+    user = _user_label(request, current_user_email)
     skip = _skip_cache(request, body)
     history = _history_list(body)
 
@@ -391,7 +392,7 @@ def ask_endpoint(
 ) -> AskResponse:
     engine = get_engine()
     timing = TimingRecord()
-    user = _user_label(request)
+    user = _user_label(request, current_user_email)
     skip = _skip_cache(request, body)
     history = _history_list(body)
 
@@ -486,7 +487,7 @@ def ask_stream_endpoint(
 
     def event_generator() -> Iterator[str]:
         try:
-            yield from _stream_ask(engine, body, request)
+            yield from _stream_ask(engine, body, request, current_user_email)
         except ValueError as exc:
             yield _ndjson_line({"type": "error", "detail": str(exc)})
         except RuntimeError as exc:
