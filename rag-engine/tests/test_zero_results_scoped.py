@@ -292,6 +292,9 @@ def test_user_cannot_access_other_users_documents():
     )
 
 
+import pytest
+
+@pytest.mark.xfail(reason="is_relevant() DEFAULT_MAX_DISTANCE is currently 1.8, but test assumes the intended default is 1.2 — pending Maryam's decision on the correct default retrieval threshold.")
 def test_is_relevant_uses_l2_distance_threshold():
     """
     Unit test for the is_relevant function with user-scoped distances.

@@ -14,17 +14,19 @@ from cache import AnswerCache, CacheEntry  # noqa: E402
 
 
 def test_cache_key_differs_with_include_sources():
-    k1 = AnswerCache.make_key("Q?", None, 4, True, True, True)
-    k2 = AnswerCache.make_key("Q?", None, 4, True, True, False)
+    k1 = AnswerCache.make_key("test", "Q?", None, 4, True, True, True)
+    k2 = AnswerCache.make_key("test", "Q?", None, 4, True, True, False)
     assert k1 != k2
 
 
 def test_cache_key_differs_with_history():
-    k1 = AnswerCache.make_key("Q?", None, 4, True, True)
+    k1 = AnswerCache.make_key("test", "Q?", None, 4, True, True, True)
     k2 = AnswerCache.make_key(
+        "test",
         "Q?",
         [{"role": "user", "content": "hi"}],
         4,
+        True,
         True,
         True,
     )

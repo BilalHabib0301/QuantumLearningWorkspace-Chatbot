@@ -28,8 +28,16 @@ def client():
 
         main._engine = mock_engine
         main._engine_ready = True
+
+        def _fake_current_user_email() -> str:
+            return "test-user@example.com"
+
+        main.app.dependency_overrides[main.get_current_user_email] = (
+            _fake_current_user_email
+        )
         with TestClient(main.app) as test_client:
             yield test_client
+        main.app.dependency_overrides.clear()
         main._engine = None
         main._engine_ready = False
 
