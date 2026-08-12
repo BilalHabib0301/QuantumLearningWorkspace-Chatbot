@@ -292,15 +292,12 @@ def test_user_cannot_access_other_users_documents():
     )
 
 
-import pytest
-
-@pytest.mark.xfail(reason="is_relevant() DEFAULT_MAX_DISTANCE is currently 1.8, but test assumes the intended default is 1.2 — pending Maryam's decision on the correct default retrieval threshold.")
 def test_is_relevant_uses_l2_distance_threshold():
     """
     Unit test for the is_relevant function with user-scoped distances.
 
     ChromaDB uses L2 distance (lower = more similar).
-    The threshold is 1.2 by default.
+    The threshold is 1.8 by default.
     """
     # Close match (within threshold) - should be relevant
     assert is_relevant([0.5, 1.0, 1.5], max_distance=1.2) is True
@@ -315,9 +312,9 @@ def test_is_relevant_uses_l2_distance_threshold():
     assert is_relevant(None) is False
     assert is_relevant([]) is False
 
-    # Exactly at threshold - should be relevant
-    assert is_relevant([1.2]) is True
-    assert is_relevant([1.2001]) is False
+    # Exactly at default threshold (1.8) - should be relevant
+    assert is_relevant([1.8]) is True
+    assert is_relevant([1.8001]) is False
 
 
 @patch("rag_service._get_groq")
