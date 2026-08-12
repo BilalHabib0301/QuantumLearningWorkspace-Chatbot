@@ -88,6 +88,7 @@ class AnswerCache:
 
     @staticmethod
     def make_key(
+        user_id: str,
         question: str,
         history: list[dict] | None,
         top_k: int | None,
@@ -96,6 +97,7 @@ class AnswerCache:
         include_sources: bool | None = True,
     ) -> str:
         payload = {
+            "user_id": (user_id or "").strip(),
             "question": (question or "").strip(),
             "history": history or [],
             "top_k": top_k,
@@ -105,6 +107,7 @@ class AnswerCache:
         }
         normalized = json.dumps(payload, sort_keys=True, ensure_ascii=False)
         return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+       
 
     def get(self, key: str) -> CacheEntry | None:
         if not self.enabled:

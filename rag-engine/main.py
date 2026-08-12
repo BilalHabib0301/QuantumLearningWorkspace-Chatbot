@@ -17,6 +17,8 @@ from typing import Any, Iterator
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+import tempfile
+from pathlib import Path
 
 from cache import AnswerCache, answer_cache, ask_result_to_cache_entry
 from rate_limiter import check_rate_limit, rate_limiter
@@ -69,8 +71,9 @@ def _history_list(body: AskRequest) -> list[dict] | None:
     return [{"role": m.role, "content": m.content} for m in body.history]
 
 
-def _cache_key(body: AskRequest) -> str:
+def _cache_key(body: AskRequest, user_email: str) -> str:
     return AnswerCache.make_key(
+        user_email,
         body.question,
         _history_list(body),
         body.top_k,
@@ -78,6 +81,8 @@ def _cache_key(body: AskRequest) -> str:
         body.multi_hop,
         body.include_sources,
     )
+
+    
 
 
 def _sources_from_result(result: Any) -> tuple[list[SourceItem] | None, list[str]]:
@@ -126,6 +131,14 @@ def _result_to_response(
         no_documents=result.no_documents,
         top_k=result.top_k,
         sources=sources,
+        source_ids=source_ids,
+        rewritten_question=result.rewritten_question,
+        grounded=result.grounded,
+        retrieval_rounds=result.retrieval_rounds,
+        hop_queries=list(result.hop_queries),
+        conflict_hint=result.conflict_hint,
+        cached=cached,
+        timing=timing_info,
     )
 
 
@@ -188,15 +201,15 @@ def _stream_ask(
     engine: RagEngine,
     body: AskRequest,
     request: Request,
-    current_user_email: str,
+    user_email: str,
 ) -> Iterator[str]:
     timing = TimingRecord()
-    user = _user_label(request, current_user_email)
+    user = _user_label(request, user_email)
     skip = _skip_cache(request, body)
     history = _history_list(body)
 
     if not skip:
-        cached = answer_cache.get(_cache_key(body))
+        cached = answer_cache.get(_cache_key(body, user_email))
         if cached is not None:
             timing.llm_ms = 0.0
             timing.retrieval_ms = 0.0
@@ -239,7 +252,7 @@ def _stream_ask(
             include_sources=body.include_sources,
             rerank=body.rerank,
             multi_hop=body.multi_hop,
-            user_id=current_user_email,
+            user_id=user_email,
         )
         timing.end_retrieval()
     except (ValueError, RuntimeError) as exc:
@@ -304,7 +317,7 @@ def _stream_ask(
 
     if not skip:
         answer_cache.set(
-            _cache_key(body),
+            _cache_key(body, user_email),
             ask_result_to_cache_entry(result, include_sources=body.include_sources),
         )
 
@@ -397,7 +410,7 @@ def ask_endpoint(
     history = _history_list(body)
 
     if not skip:
-        cached = answer_cache.get(_cache_key(body))
+        cached = answer_cache.get(_cache_key(body, current_user_email))
         if cached is not None:
             timing.llm_ms = 0.0
             timing.retrieval_ms = 0.0
@@ -456,7 +469,7 @@ def ask_endpoint(
 
         if not skip:
             answer_cache.set(
-                _cache_key(body),
+                _cache_key(body, current_user_email),
                 ask_result_to_cache_entry(result, include_sources=body.include_sources),
             )
 
@@ -474,8 +487,6 @@ def ask_endpoint(
         timing=timing,
         include_sources=body.include_sources,
     )
-
-
 @app.post("/ask/stream")
 def ask_stream_endpoint(
     body: AskRequest,
@@ -497,5 +508,10 @@ def ask_stream_endpoint(
         event_generator(),
         media_type="application/x-ndjson",
     )
+
+
+
+
+
 
 
