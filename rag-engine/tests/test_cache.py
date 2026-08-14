@@ -14,22 +14,31 @@ from cache import AnswerCache, CacheEntry  # noqa: E402
 
 
 def test_cache_key_differs_with_include_sources():
-    k1 = AnswerCache.make_key("Q?", None, 4, True, True, True)
-    k2 = AnswerCache.make_key("Q?", None, 4, True, True, False)
+    k1 = AnswerCache.make_key(
+        user_id="alice", question="Q?", history=None, top_k=4,
+        rerank=True, multi_hop=True, include_sources=True,
+    )
+    k2 = AnswerCache.make_key(
+        user_id="alice", question="Q?", history=None, top_k=4,
+        rerank=True, multi_hop=True, include_sources=False,
+    )
     assert k1 != k2
 
 
 def test_cache_key_differs_with_history():
-    k1 = AnswerCache.make_key("Q?", None, 4, True, True)
+    k1 = AnswerCache.make_key(
+        user_id="alice", question="Q?", history=None, top_k=4,
+        rerank=True, multi_hop=True,
+    )
     k2 = AnswerCache.make_key(
-        "Q?",
-        [{"role": "user", "content": "hi"}],
-        4,
-        True,
-        True,
+        user_id="alice",
+        question="Q?",
+        history=[{"role": "user", "content": "hi"}],
+        top_k=4,
+        rerank=True,
+        multi_hop=True,
     )
     assert k1 != k2
-
 
 def test_cache_get_set_and_hit():
     cache = AnswerCache(max_entries=10, ttl_seconds=60, enabled=True)

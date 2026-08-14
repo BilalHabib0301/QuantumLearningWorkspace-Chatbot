@@ -28,21 +28,21 @@ def test_rate_limit_allows_under_max():
     limiter = RateLimiter(max_requests=3, window_seconds=60)
     req = _mock_request(user_id="alice")
     for _ in range(3):
-        limiter.check(req)
+        limiter.check(req, user_id="alice")
 
 
 def test_rate_limit_blocks_over_max():
     limiter = RateLimiter(max_requests=2, window_seconds=60)
     req = _mock_request(user_id="bob")
-    limiter.check(req)
-    limiter.check(req)
+    limiter.check(req, user_id="bob")
+    limiter.check(req, user_id="bob")
     with pytest.raises(HTTPException) as exc:
-        limiter.check(req)
+        limiter.check(req, user_id="bob")
     assert exc.value.status_code == 429
     assert "Retry-After" in exc.value.headers
 
 
 def test_rate_limit_separate_users():
     limiter = RateLimiter(max_requests=1, window_seconds=60)
-    limiter.check(_mock_request(user_id="u1"))
-    limiter.check(_mock_request(user_id="u2"))
+    limiter.check(_mock_request(user_id="u1"), user_id="u1")
+    limiter.check(_mock_request(user_id="u2"), user_id="u2")

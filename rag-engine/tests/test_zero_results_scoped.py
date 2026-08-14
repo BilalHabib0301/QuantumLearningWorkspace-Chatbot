@@ -312,9 +312,9 @@ def test_is_relevant_uses_l2_distance_threshold():
     assert is_relevant(None) is False
     assert is_relevant([]) is False
 
-    # Exactly at threshold - should be relevant
-    assert is_relevant([1.2]) is True
-    assert is_relevant([1.2001]) is False
+ # Exactly at threshold - should be relevant
+    assert is_relevant([1.2], max_distance=1.2) is True
+    assert is_relevant([1.2001], max_distance=1.2) is False
 
 
 @patch("rag_service._get_groq")

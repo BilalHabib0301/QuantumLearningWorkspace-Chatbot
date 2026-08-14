@@ -25,11 +25,16 @@ def client():
 
     with patch("main.create_engine", return_value=mock_engine):
         import main
+        from auth import get_current_user_email
 
         main._engine = mock_engine
         main._engine_ready = True
+        # Auth is tested separately (see test_auth.py) — here we fake a
+        # logged-in user so /ask contract tests don't need a real JWT.
+        main.app.dependency_overrides[get_current_user_email] = lambda: "test-user@example.com"
         with TestClient(main.app) as test_client:
             yield test_client
+        main.app.dependency_overrides.clear()
         main._engine = None
         main._engine_ready = False
 
