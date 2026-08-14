@@ -1,5 +1,4 @@
 """Unit tests for answer cache."""
-
 from __future__ import annotations
 
 import sys
@@ -39,6 +38,7 @@ def test_cache_key_differs_with_history():
         multi_hop=True,
     )
     assert k1 != k2
+
 
 def test_cache_get_set_and_hit():
     cache = AnswerCache(max_entries=10, ttl_seconds=60, enabled=True)

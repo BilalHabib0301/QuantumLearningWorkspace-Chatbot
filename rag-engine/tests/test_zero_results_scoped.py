@@ -297,7 +297,7 @@ def test_is_relevant_uses_l2_distance_threshold():
     Unit test for the is_relevant function with user-scoped distances.
 
     ChromaDB uses L2 distance (lower = more similar).
-    The threshold is 1.2 by default.
+    The threshold is 1.8 by default.
     """
     # Close match (within threshold) - should be relevant
     assert is_relevant([0.5, 1.0, 1.5], max_distance=1.2) is True
@@ -312,9 +312,13 @@ def test_is_relevant_uses_l2_distance_threshold():
     assert is_relevant(None) is False
     assert is_relevant([]) is False
 
- # Exactly at threshold - should be relevant
+# Exactly at an explicit threshold - should be relevant
     assert is_relevant([1.2], max_distance=1.2) is True
     assert is_relevant([1.2001], max_distance=1.2) is False
+
+    # Exactly at the default threshold (1.8) - should be relevant
+    assert is_relevant([1.8]) is True
+    assert is_relevant([1.8001]) is False
 
 
 @patch("rag_service._get_groq")

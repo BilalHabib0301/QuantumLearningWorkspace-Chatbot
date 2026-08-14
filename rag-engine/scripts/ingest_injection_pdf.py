@@ -11,11 +11,16 @@ from rag_service import add_user_document, create_engine, load_env
 def ingest_pdf():
     load_env()
 
+    # Must match the collection the live server uses (main.py's lifespan
+    # calls create_engine(collection_name="study_chunks")) — a separate
+    # test collection would never be seen by a running server.
     collection_name = "study_chunks"
 
     print(f"Creating engine with collection: {collection_name}...")
     engine = create_engine(collection_name=collection_name)
 
+    # Absolute path (relative to this script's location) so this works
+    # regardless of which directory you run it from.
     pdf_path = RAG_ENGINE_DIR / "data" / "user_a_docs" / "injection_test.pdf"
     user_id = "injection_test@test.com"
 
