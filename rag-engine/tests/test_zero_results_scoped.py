@@ -312,7 +312,11 @@ def test_is_relevant_uses_l2_distance_threshold():
     assert is_relevant(None) is False
     assert is_relevant([]) is False
 
-    # Exactly at default threshold (1.8) - should be relevant
+# Exactly at an explicit threshold - should be relevant
+    assert is_relevant([1.2], max_distance=1.2) is True
+    assert is_relevant([1.2001], max_distance=1.2) is False
+
+    # Exactly at the default threshold (1.8) - should be relevant
     assert is_relevant([1.8]) is True
     assert is_relevant([1.8001]) is False
 
