@@ -39,7 +39,7 @@ python scripts/stream_client.py "Where does the Calvin cycle occur?"
 
 ```bash
 cd chatbot
-pip install -r requirements-dev.txt
+pip install -r requirements.txt
 pytest rag-engine/tests -q
 ```
 
@@ -85,7 +85,6 @@ See [`rag-engine/.env.example`](rag-engine/.env.example).
 chatbot/
 ├── README.md                 # this file
 ├── requirements.txt
-├── requirements-dev.txt
 ├── pyproject.toml
 ├── Dockerfile
 ├── memory/                   # CLI conversation demos
