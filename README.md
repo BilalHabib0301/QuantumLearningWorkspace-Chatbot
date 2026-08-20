@@ -28,6 +28,8 @@ uvicorn main:app --reload --host 127.0.0.1 --port 8001
 | POST | `/ask` | Sync RAG answer (cache, timing, rate limits) |
 | POST | `/ask/stream` | NDJSON token stream |
 
+> **Note on ingestion:** This repo handles retrieval and answering only. Document ingestion (chunking → embedding → ChromaDB) is handled by Team Lambda's separate `ai-ml` service on a different port. Mu does not build, deploy, or maintain an ingestion path.
+
 ## Stream test client
 
 ```bash
@@ -77,7 +79,7 @@ See [`rag-engine/.env.example`](rag-engine/.env.example).
 | `ENABLE_CACHE` | Answer cache on/off |
 | `RATE_LIMIT_MAX` | Requests per window per user |
 | `ENABLE_MULTI_HOP` | Agentic retrieval hops |
-| `SEED_FIXTURES` | (Phase 9) Load demo corpus |
+| `SEED_FIXTURES` | Load local demo corpus into collection (demo/eval only, not production) |
 
 ## Project layout
 
@@ -102,13 +104,14 @@ chatbot/
 
 ## Upgrade roadmap
 
-| Phase | Focus |
-|-------|--------|
-| 8 (current) | Docker, CI, API tests, Redis backends, health readiness |
-| 9 | Persistent index + `/ingest` from Lambda |
-| 10 | Auth + server-side sessions for Web |
-| 11 | Hybrid retrieval, cross-encoder rerank |
-| 12 | Metrics, structured logs, runbook |
+| Phase | Focus | Status |
+|-------|-------|--------|
+| 8 | Docker, CI, API tests, Redis backends, health readiness | **Done** |
+| 9 | Persistent index (ChromaDB); `/ingest` removed — ingestion is Lambda's `ai-ml` service | **Done** |
+| 10 | JWT auth (`get_current_user_email`), user-scoped retrieval, identity-from-JWT-only (P0-2) | **Done** |
+| 11 | Rerank via LLM prompt (not cross-encoder); multi-hop agentic retrieval | **Basic version done** — cross-encoder rerank still possible future upgrade |
+| 12 | Per-request timing (`TimingRecord` → response headers + `key=value` logs) | **Basic version done** — JSON structured logging, metrics dashboard, and runbook still upcoming |
+| — | P0-5: Cache invalidation on document purge | **Upcoming** |
 
 ## Troubleshooting
 
@@ -116,5 +119,5 @@ chatbot/
 |---------|-----|
 | `503 RAG engine is not ready` | Wait for startup embedding; check `/health` `ready` |
 | `503 GROQ_API_KEY` | Set key in `.env` |
-| `429 Rate limit` | Wait `Retry-After` seconds or change `X-User-Id` |
+| `429 Rate limit` | Wait `Retry-After` seconds; rate limit is per authenticated JWT identity |
 | Slow first request | Model + index warmup on startup (expected) |
