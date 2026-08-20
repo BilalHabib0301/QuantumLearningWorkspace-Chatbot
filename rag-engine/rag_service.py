@@ -564,29 +564,36 @@ def create_engine(
     collection_name: str = "study_chunks",
     data_file: Path | None = None,
     data_dir: Path | None = None,
+    seed_demo_data: bool = False,
 ) -> RagEngine:
     """
-    Chunk source docs, embed, and return a ready RagEngine.
+    Connect to the collection and return a ready RagEngine.
 
-    By default indexes every ``.txt`` under ``data/``. Pass ``data_file`` to
-    index a single file (legacy demos).
+    By default (seed_demo_data=False), no local demo content is inserted —
+    the engine simply connects to whatever the shared collection already
+    contains (e.g. real content from Lambda ingestion).
+
+    Set seed_demo_data=True to also chunk/embed/insert the local demo
+    corpus (every .txt under data/, or data_file/data_dir if given).
+    Used by eval and manual demo scripts — never by the production server.
     """
     load_env()
-    if data_file is not None:
-        path = Path(data_file)
-        if not path.exists():
-            raise FileNotFoundError(f"Source document not found: {path}")
-        chunks = chunk_file(path)
-    else:
-        directory = Path(data_dir) if data_dir is not None else DATA_DIR
-        if not directory.exists():
-            raise FileNotFoundError(f"Data directory not found: {directory}")
-        chunks = chunk_data_directory(directory)
-
+    chunks: list = []
+    if seed_demo_data:
+        if data_file is not None:
+            path = Path(data_file)
+            if not path.exists():
+                raise FileNotFoundError(f"Source document not found: {path}")
+            chunks = chunk_file(path)
+        else:
+            directory = Path(data_dir) if data_dir is not None else DATA_DIR
+            if not directory.exists():
+                raise FileNotFoundError(f"Data directory not found: {directory}")
+            chunks = chunk_data_directory(directory)
     embedding_model = load_embedding_model()
     collection = create_collection(name=collection_name)
-    add_chunks(collection, embedding_model, chunks)
-
+    if chunks:
+        add_chunks(collection, embedding_model, chunks)
     return RagEngine(
         collection=collection,
         embedding_model=embedding_model,
