@@ -123,7 +123,7 @@ def main(argv: list[str] | None = None) -> int:
 
     cases = json.loads(args.cases.read_text(encoding="utf-8"))
     print(f"Loading engine for {len(cases)} cases...")
-    engine = create_engine(collection_name="study_chunks_eval")
+    engine = create_engine(collection_name="study_chunks_eval", seed_demo_data=True)
     print(f"Indexed {engine.chunks_indexed} chunks\n")
 
     passed = 0

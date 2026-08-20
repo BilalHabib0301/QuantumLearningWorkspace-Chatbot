@@ -47,7 +47,7 @@ def print_result(question: str, result: AskResult) -> None:
 
 def run(question: str, n_results: int) -> None:
     print("Warming RAG engine (chunk -> embed -> Chroma)...")
-    engine = create_engine(collection_name="study_chunks")
+    engine = create_engine(collection_name="study_chunks_demo", seed_demo_data=True)
     print(f"Indexed {engine.chunks_indexed} chunk(s); max_distance={engine.max_distance}")
     result = ask(engine, question, top_k=n_results, include_sources=True)
     print_result(question, result)
