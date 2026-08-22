@@ -107,7 +107,6 @@ class AnswerCache:
         }
         normalized = json.dumps(payload, sort_keys=True, ensure_ascii=False)
         return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
-       
 
     def get(self, key: str) -> CacheEntry | None:
         if not self.enabled:
@@ -149,6 +148,37 @@ class AnswerCache:
         self._store[key] = (expires_at, entry)
         while len(self._store) > self.max_entries:
             self._store.popitem(last=False)
+
+    def invalidate_document(self, document_id: str) -> int:
+        """
+        [P0-5] Remove all cached answers whose sources include this
+        document_id. Cache entries store source_ids like "pdf_chunk_1",
+        which are prefixed with the document_id (see chroma_store.py's
+        store_chunks: f"{document_id}_chunk{index}") -- so a purged
+        document's cached answers can be found and removed precisely,
+        without wiping the whole cache.
+
+        Returns the number of entries removed.
+        """
+        if self._redis is not None:
+            removed = 0
+            for key in list(self._redis.scan_iter(f"{CACHE_KEY_PREFIX}*")):
+                raw = self._redis.get(key)
+                if raw is None:
+                    continue
+                entry = CacheEntry.from_json(raw)
+                if any(sid.startswith(f"{document_id}_") for sid in entry.source_ids):
+                    self._redis.delete(key)
+                    removed += 1
+            return removed
+
+        keys_to_remove = [
+            key for key, (_, entry) in self._store.items()
+            if any(sid.startswith(f"{document_id}_") for sid in entry.source_ids)
+        ]
+        for key in keys_to_remove:
+            del self._store[key]
+        return len(keys_to_remove)
 
     def size(self) -> int:
         if self._redis is not None:
