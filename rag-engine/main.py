@@ -8,6 +8,7 @@ Interactive docs: http://127.0.0.1:8001/docs
 """
 
 from __future__ import annotations
+from cache import answer_cache
 
 import json
 import os
@@ -508,6 +509,27 @@ def ask_stream_endpoint(
         event_generator(),
         media_type="application/x-ndjson",
     )
+
+
+@app.delete("/internal/cache/document/{document_id}")
+def invalidate_document_cache(
+    document_id: str,
+    current_user_email: str = Depends(get_current_user_email),
+) -> dict:
+    """
+    [P0-5] Invalidate any cached answers whose sources came from this
+    document_id. Called after Lambda purges the document from the
+    shared ChromaDB store, so Mu never serves a cached answer built
+    from content that no longer exists.
+
+    Note: like Lambda's own purge endpoint, this does not verify the
+    caller owns document_id — any authenticated user can invalidate
+    any document's cache entries. Cache-only side effect (no data
+    loss beyond needing to regenerate an answer), so low risk, but
+    worth the same ownership-check note as Lambda's purge endpoint.
+    """
+    removed = answer_cache.invalidate_document(document_id)
+    return {"success": True, "removed": removed}
 
 
 
