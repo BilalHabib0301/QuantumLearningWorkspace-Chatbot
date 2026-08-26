@@ -32,6 +32,15 @@ def test_parse_enough_false_with_next_query():
     assert "ATP" in nxt
 
 
+def test_parse_enough_false_with_multiline_next_query():
+    # Test that it stops at a newline or handles complex formatting
+    enough, nxt = parse_enough_decision(
+        "ENOUGH: false\nNEXT_QUERY: \"ATP synthase proton gradient\"\n(extra info)"
+    )
+    assert enough is False
+    assert nxt == "ATP synthase proton gradient"
+
+
 def test_parse_enough_unparseable_defaults_to_enough():
     enough, nxt = parse_enough_decision("I need more info somehow")
     assert enough is True
