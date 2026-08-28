@@ -52,7 +52,10 @@ CONFLICT_SOURCE_NAME = "conflict_notes.txt"
 
 _GROUNDED_RE = re.compile(r"GROUNDED\s*:\s*(true|false)", re.IGNORECASE)
 _ENOUGH_RE = re.compile(r"ENOUGH\s*:\s*(true|false)", re.IGNORECASE)
-_NEXT_QUERY_RE = re.compile(r"NEXT_QUERY\s*:\s*(.+)", re.IGNORECASE | re.DOTALL)
+_NEXT_QUERY_RE = re.compile(
+    r"NEXT_QUERY\s*:\s*(.+?)(?=\s*(?:ENOUGH|GROUNDED)\s*:|\n|$)",
+    re.IGNORECASE | re.DOTALL,
+)
 _CHUNK_ID_RE = re.compile(r"[a-zA-Z][\w]*_chunk_\d+|chunk_\d+", re.IGNORECASE)
 
 SYSTEM_PROMPT_BASE = (
@@ -280,6 +283,11 @@ def parse_enough_decision(text: str) -> tuple[bool, str | None]:
     # Handle potential multi-line and extra quotes
     # Assume the query stops at a new line if not explicitly quoted
     query = raw_query.split('\n')[0].strip().strip('"').strip("'")
+    
+    # Robustness: ensure trailing ENOUGH/GROUNDED aren't accidentally captured
+    for forbidden in ["ENOUGH", "GROUNDED"]:
+        if query.upper().endswith(forbidden):
+            query = query[:-len(forbidden)].strip()
     
     if not query:
         return True, None

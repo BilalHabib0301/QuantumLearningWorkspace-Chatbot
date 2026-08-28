@@ -47,6 +47,18 @@ def test_parse_enough_unparseable_defaults_to_enough():
     assert nxt is None
 
 
+def test_parse_enough_false_no_newline_before_trailing_marker():
+    # Regression: NEXT_QUERY may be immediately followed by another marker
+    # with NO newline between them. The query must stop at the marker.
+    enough, nxt = parse_enough_decision(
+        "ENOUGH: false\nNEXT_QUERY: overview of the light-dependent "
+        "reactions and overall process of photosynthesisENOUGH: false"
+    )
+    assert enough is False
+    assert nxt == "overview of the light-dependent reactions and overall process of photosynthesis"
+    assert "ENOUGH" not in nxt
+
+
 def test_format_untrusted_chunks_delimiters():
     text = format_untrusted_chunks(
         ["hello world"],
