@@ -112,6 +112,9 @@ Solution: Updated test to skip with informative message about JWT requirement
 
 Changes:
   - Changed BASE_URL from "http://127.0.0.1:8000" to "http://127.0.0.1:8001"
+    (CORRECTION per Contract v1: the 8000→8001 change above was incorrect.
+    Mu (rag-engine) is port **8000**; 8001 is Lambda ingestion, 8002 Lambda quiz,
+    5000 Pluto web. test_injection_real_pdf.py correctly uses 8000.)
   - Removed user_id from request body and headers
   - Added pytest.skip() with note about JWT auth requirement
   - Added comment explaining how to use JWT tokens with live server

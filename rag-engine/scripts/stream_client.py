@@ -4,7 +4,7 @@ Test client for POST /ask/stream (NDJSON).
 
 Usage:
   python scripts/stream_client.py "Where does the Calvin cycle occur?"
-  python scripts/stream_client.py --url http://127.0.0.1:8001/ask/stream "What is photosynthesis?"
+  python scripts/stream_client.py --url http://127.0.0.1:8000/ask/stream "What is photosynthesis?"
 """
 
 from __future__ import annotations
@@ -70,7 +70,7 @@ def main() -> int:
     parser.add_argument("question", nargs="?", default="Where does the Calvin cycle occur?")
     parser.add_argument(
         "--url",
-        default="http://127.0.0.1:8001/ask/stream",
+        default="http://127.0.0.1:8000/ask/stream",
         help="Full URL to the stream endpoint",
     )
     args = parser.parse_args()
