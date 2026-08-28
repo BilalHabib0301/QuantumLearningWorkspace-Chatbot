@@ -2,9 +2,9 @@
 Team Mu RAG Chat API — FastAPI service (separate from web/backend).
 
 Run from chatbot/rag-engine/:
-  uvicorn main:app --reload --host 127.0.0.1 --port 8001
+  uvicorn main:app --reload --host 127.0.0.1 --port 8000
 
-Interactive docs: http://127.0.0.1:8001/docs
+Interactive docs: http://127.0.0.1:8000/docs
 """
 
 from __future__ import annotations

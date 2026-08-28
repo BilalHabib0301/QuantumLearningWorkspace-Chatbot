@@ -9,3 +9,12 @@ __pycache__/
 *.pyc
 
 *.egg-info/
+
+# Debug artifacts
+rag-engine/chroma_data/
+server_check*.log
+server_check*.err.log
+verify_parser.py
+verify_parser_v2.py
+rag-engine/scripts/debug_*.py
+rag-engine/scripts/ingest_demo_docs.py

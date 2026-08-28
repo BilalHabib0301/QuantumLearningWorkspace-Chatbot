@@ -11,7 +11,7 @@ import time
 import sys
 import jwt
 
-BASE_URL = "http://127.0.0.1:8001"
+BASE_URL = "http://127.0.0.1:8000"
 RATE_LIMIT_MAX = 10  # From .env RATE_LIMIT_MAX
 JWT_SECRET = "test-secret"  # Must match server configuration during test
 

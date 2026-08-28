@@ -52,7 +52,10 @@ CONFLICT_SOURCE_NAME = "conflict_notes.txt"
 
 _GROUNDED_RE = re.compile(r"GROUNDED\s*:\s*(true|false)", re.IGNORECASE)
 _ENOUGH_RE = re.compile(r"ENOUGH\s*:\s*(true|false)", re.IGNORECASE)
-_NEXT_QUERY_RE = re.compile(r"NEXT_QUERY\s*:\s*(.+)", re.IGNORECASE)
+_NEXT_QUERY_RE = re.compile(
+    r"NEXT_QUERY\s*:\s*(.+?)(?=\s*(?:ENOUGH|GROUNDED)\s*:|\n|$)",
+    re.IGNORECASE | re.DOTALL,
+)
 _CHUNK_ID_RE = re.compile(r"[a-zA-Z][\w]*_chunk_\d+|chunk_\d+", re.IGNORECASE)
 
 SYSTEM_PROMPT_BASE = (
@@ -258,19 +261,38 @@ def parse_enough_decision(text: str) -> tuple[bool, str | None]:
     """
     if not text:
         return True, None
+        
+    # Look for ENOUGH decision
     enough_match = _ENOUGH_RE.search(text)
     if not enough_match:
+        # Fallback: if no ENOUGH, assume enough=True to stop
         return True, None
+        
     enough = enough_match.group(1).lower() == "true"
     if enough:
         return True, None
+        
+    # If not enough, look for NEXT_QUERY
     next_match = _NEXT_QUERY_RE.search(text)
     if not next_match:
         return True, None
-    next_query = next_match.group(1).strip().strip('"').strip("'")
-    if not next_query:
+        
+    # Extract query and clean it
+    raw_query = next_match.group(1).strip()
+    
+    # Handle potential multi-line and extra quotes
+    # Assume the query stops at a new line if not explicitly quoted
+    query = raw_query.split('\n')[0].strip().strip('"').strip("'")
+    
+    # Robustness: ensure trailing ENOUGH/GROUNDED aren't accidentally captured
+    for forbidden in ["ENOUGH", "GROUNDED"]:
+        if query.upper().endswith(forbidden):
+            query = query[:-len(forbidden)].strip()
+    
+    if not query:
         return True, None
-    return False, next_query
+        
+    return False, query
 
 
 def parse_rerank_ids(text: str, candidate_ids: list[str], top_k: int) -> list[str]:

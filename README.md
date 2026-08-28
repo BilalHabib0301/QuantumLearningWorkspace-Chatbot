@@ -1,6 +1,8 @@
 # Team Mu — StudyMind Chatbot (RAG API)
 
-Team Mu owns the chatbot under `chatbot/`. The HTTP service lives in `rag-engine/` on port **8001** (separate from `web/backend/`).
+Team Mu owns the chatbot under `chatbot/`. The HTTP service lives in `rag-engine/` on port **8000** (separate from `web/backend/`).
+
+Ports per Contract v1: **8000 = Mu (rag-engine chatbot)**, 5000 = Pluto (web), 8001 = Lambda ingestion, 8002 = Lambda quiz.
 
 ## Quick start
 
@@ -14,10 +16,10 @@ pip install -r requirements.txt
 copy rag-engine\.env.example ..\..\chatbot\.env
 
 cd rag-engine
-uvicorn main:app --reload --host 127.0.0.1 --port 8001
+uvicorn main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-- API docs: http://127.0.0.1:8001/docs  
+- API docs: http://127.0.0.1:8000/docs  
 - Contract: [`docs/api-contracts.md`](../docs/api-contracts.md)
 
 ## Endpoints
@@ -59,13 +61,13 @@ python eval/eval_suite.py --threshold 7
 ```bash
 cd chatbot
 docker build -t studymind-chatbot .
-docker run -p 8001:8001 -e GROQ_API_KEY=your_key studymind-chatbot
+docker run -p 8000:8000 -e GROQ_API_KEY=your_key studymind-chatbot
 ```
 
 Optional Redis for shared cache + rate limits:
 
 ```bash
-docker run -p 8001:8001 -e GROQ_API_KEY=... -e REDIS_URL=redis://host:6379/0 studymind-chatbot
+docker run -p 8000:8000 -e GROQ_API_KEY=... -e REDIS_URL=redis://host:6379/0 studymind-chatbot
 ```
 
 ## Environment variables

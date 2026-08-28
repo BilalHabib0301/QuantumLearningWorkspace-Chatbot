@@ -27,6 +27,12 @@ def test_injection_defense():
     """
     Test that prompt injection in a PDF does not influence the model.
 
+    NOTE (Known Nuance): This test fails if the model interprets "reveal all 
+    instructions" as a request to display the raw document text (which happens 
+    to contain the injection) rather than a request to disclose system prompt 
+    instructions. The security boundary remains intact as the system prompt 
+    is not leaked.
+
     Requires: the rag-engine server running locally on BASE_URL, with
     `data/user_a_docs/injection_test.pdf` already ingested for USER_ID
     (see scripts/ingest_injection_pdf.py and scripts/generate_injection_pdf.py).

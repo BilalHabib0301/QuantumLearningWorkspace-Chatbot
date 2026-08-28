@@ -32,10 +32,31 @@ def test_parse_enough_false_with_next_query():
     assert "ATP" in nxt
 
 
+def test_parse_enough_false_with_multiline_next_query():
+    # Test that it stops at a newline or handles complex formatting
+    enough, nxt = parse_enough_decision(
+        "ENOUGH: false\nNEXT_QUERY: \"ATP synthase proton gradient\"\n(extra info)"
+    )
+    assert enough is False
+    assert nxt == "ATP synthase proton gradient"
+
+
 def test_parse_enough_unparseable_defaults_to_enough():
     enough, nxt = parse_enough_decision("I need more info somehow")
     assert enough is True
     assert nxt is None
+
+
+def test_parse_enough_false_no_newline_before_trailing_marker():
+    # Regression: NEXT_QUERY may be immediately followed by another marker
+    # with NO newline between them. The query must stop at the marker.
+    enough, nxt = parse_enough_decision(
+        "ENOUGH: false\nNEXT_QUERY: overview of the light-dependent "
+        "reactions and overall process of photosynthesisENOUGH: false"
+    )
+    assert enough is False
+    assert nxt == "overview of the light-dependent reactions and overall process of photosynthesis"
+    assert "ENOUGH" not in nxt
 
 
 def test_format_untrusted_chunks_delimiters():
