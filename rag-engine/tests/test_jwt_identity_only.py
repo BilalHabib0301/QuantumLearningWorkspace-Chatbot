@@ -72,6 +72,7 @@ def _make_engine(name: str = "test_jwt_isolation") -> RagEngine:
         embedding_model_name="all-MiniLM-L6-v2",
         default_top_k=4,
         max_distance=1.2,
+        auto_reconnect=False,
     )
 
 

@@ -130,6 +130,7 @@ class RagEngine:
     default_top_k: int = DEFAULT_TOP_K
     max_distance: float = DEFAULT_MAX_DISTANCE
     _groq: Groq | None = field(default=None, repr=False)
+    auto_reconnect: bool = True
 
 
 def load_env() -> None:
@@ -817,12 +818,7 @@ def prepare_ask(
     if not cleaned:
         raise ValueError("question must be a non-empty string")
 
-        # [Mu engine cache fix] ChromaDB's PersistentClient caches its index in
-    # memory at connect time -- if another process (Lambda ingestion) writes
-    # new chunks to the same on-disk collection after this engine started,
-    # this engine won't see them until it reconnects. Reconnecting here is
-    # cheap, so we do it on every request rather than only once at startup.
-    engine.collection = create_collection(name="study_chunks")
+         
     k = clamp_top_k(top_k, default=engine.default_top_k)
     hist = list(history) if history is not None else []
     if user_id is not None and not user_has_documents(engine.collection, user_id):
