@@ -27,6 +27,7 @@ from rag_service import (
     RagEngine,
     SourceInfo,
     ask,
+    create_collection,
     create_engine,
     finalize_ask,
     generate_answer_sync,
@@ -244,6 +245,8 @@ def _stream_ask(
             return
 
     try:
+        if engine.auto_reconnect:
+            engine.collection = create_collection(name=engine.collection.name)
         timing.start_retrieval()
         prepared = prepare_ask(
             engine,
@@ -428,6 +431,8 @@ def ask_endpoint(
             )
 
     try:
+        if engine.auto_reconnect:
+            engine.collection = create_collection(name=engine.collection.name)
         timing.start_retrieval()
         prepared = prepare_ask(
             engine,
