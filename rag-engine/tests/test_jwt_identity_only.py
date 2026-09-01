@@ -15,7 +15,7 @@ if str(RAG_ENGINE_DIR) not in sys.path:
     sys.path.insert(0, str(RAG_ENGINE_DIR))
 
 from chunker import chunk_file
-from rag_service import RagEngine, prepare_ask, REFUSAL_MESSAGE
+from rag_service import RagEngine, prepare_ask, REFUSAL_MESSAGE, NO_DOCUMENTS_MESSAGE
 from vector_store import add_chunks
 
 
@@ -199,7 +199,7 @@ def test_alice_cannot_reach_bobs_docs_via_parameter():
     assert prepared.refused is True, (
         "Alice should be refused when she has no documents"
     )
-    assert prepared.refusal_answer == REFUSAL_MESSAGE
+    assert prepared.refusal_answer == NO_DOCUMENTS_MESSAGE
 
 
 # ---------------------------------------------------------------------------
