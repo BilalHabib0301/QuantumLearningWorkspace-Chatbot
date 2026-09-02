@@ -58,12 +58,14 @@ def _seed_user(engine: RagEngine, user_id: str, filename: str) -> list[dict]:
     return chunks
 
 
-def _make_engine(name: str = "test_jwt_isolation") -> RagEngine:
+def _make_engine(name: str = None) -> RagEngine:
     """Create an in-memory engine for testing."""
     import chromadb
+    import uuid
 
+    collection_name = name or f"test_col_{uuid.uuid4().hex}"
     client = chromadb.EphemeralClient()
-    collection = client.get_or_create_collection(name=name)
+    collection = client.get_or_create_collection(name=collection_name)
     embedding_model = _stub_embedder()
     return RagEngine(
         collection=collection,
