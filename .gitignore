@@ -18,3 +18,26 @@ verify_parser.py
 verify_parser_v2.py
 rag-engine/scripts/debug_*.py
 rag-engine/scripts/ingest_demo_docs.py
+
+# Diagnostic/verification scripts
+check_sources.py
+find_reliable_phrasings.py
+raw_response_printer.py
+setup_and_test.py
+show_sources.py
+test_live_prompt.py
+verify_committed_phrasings.py
+verify_fixed_p2.py
+verify_injection_prompt.py
+verify_trigger.py
+check_sources.py
+find_reliable_phrasings.py
+rag-engine/scripts/live_adversarial_test.py
+raw_response_printer.py
+setup_and_test.py
+show_sources.py
+test_live_prompt.py
+verify_committed_phrasings.py
+verify_fixed_p2.py
+verify_injection_prompt.py
+verify_trigger.py
