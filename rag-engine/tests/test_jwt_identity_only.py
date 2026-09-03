@@ -15,7 +15,7 @@ if str(RAG_ENGINE_DIR) not in sys.path:
     sys.path.insert(0, str(RAG_ENGINE_DIR))
 
 from chunker import chunk_file
-from rag_service import RagEngine, prepare_ask, REFUSAL_MESSAGE
+from rag_service import RagEngine, prepare_ask, REFUSAL_MESSAGE, NO_DOCUMENTS_MESSAGE
 from vector_store import add_chunks
 
 
@@ -58,12 +58,14 @@ def _seed_user(engine: RagEngine, user_id: str, filename: str) -> list[dict]:
     return chunks
 
 
-def _make_engine(name: str = "test_jwt_isolation") -> RagEngine:
+def _make_engine(name: str = None) -> RagEngine:
     """Create an in-memory engine for testing."""
     import chromadb
+    import uuid
 
+    collection_name = name or f"test_col_{uuid.uuid4().hex}"
     client = chromadb.EphemeralClient()
-    collection = client.get_or_create_collection(name=name)
+    collection = client.get_or_create_collection(name=collection_name)
     embedding_model = _stub_embedder()
     return RagEngine(
         collection=collection,
@@ -200,7 +202,7 @@ def test_alice_cannot_reach_bobs_docs_via_parameter():
     assert prepared.refused is True, (
         "Alice should be refused when she has no documents"
     )
-    assert prepared.refusal_answer == REFUSAL_MESSAGE
+    assert prepared.refusal_answer == NO_DOCUMENTS_MESSAGE
 
 
 # ---------------------------------------------------------------------------
