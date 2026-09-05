@@ -14,6 +14,7 @@ import json
 import os
 from contextlib import asynccontextmanager
 from typing import Any, Iterator
+from uuid import uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -35,8 +36,17 @@ from rag_service import (
     prepare_ask,
     stream_answer_tokens,
 )
-from schemas import AskRequest, AskResponse, HealthResponse, SourceItem, TimingInfo
+from schemas import (
+    AskRequest,
+    AskResponse,
+    FeedbackRequest,
+    FeedbackResponse,
+    HealthResponse,
+    SourceItem,
+    TimingInfo,
+)
 from auth import get_current_user_email
+from feedback_store import feedback_store, record_from_response
 from request_logger import log_request
 from timing_logger import TimingRecord
 
@@ -113,6 +123,7 @@ def _result_to_response(
     cached: bool = False,
     timing: TimingRecord | None = None,
     include_sources: bool = True,
+    response_id: str = "",
 ) -> AskResponse:
     sources = None
     source_ids: list[str] = []
@@ -129,6 +140,7 @@ def _result_to_response(
         timing_info = TimingInfo(**timing.to_dict())
 
     return AskResponse(
+        response_id=response_id,
         answer=result.answer,
         refused=result.refused,
         no_documents=result.no_documents,
@@ -142,6 +154,26 @@ def _result_to_response(
         conflict_hint=result.conflict_hint,
         cached=cached,
         timing=timing_info,
+    )
+
+
+def _snapshot_response(
+    *,
+    response_id: str,
+    user: str,
+    question: str,
+    answer: str,
+    source_ids: list[str],
+) -> None:
+    """Store the /ask response so a later /feedback call can attach a rating."""
+    feedback_store.put(
+        record_from_response(
+            response_id=response_id,
+            user_id=user,
+            question=question,
+            answer=answer,
+            source_ids=source_ids,
+        )
     )
 
 
@@ -210,6 +242,7 @@ def _stream_ask(
     user = _user_label(request, user_email)
     skip = _skip_cache(request, body)
     history = _history_list(body)
+    response_id = uuid4().hex
 
     if not skip:
         cached = answer_cache.get(_cache_key(body, user_email))
@@ -220,6 +253,7 @@ def _stream_ask(
             timing.finish()
             meta = {
                 "type": "metadata",
+                "response_id": response_id,
                 "refused": cached.refused,
                 "answer": cached.answer,
                 "source_ids": cached.source_ids,
@@ -237,10 +271,18 @@ def _stream_ask(
             yield _ndjson_line(
                 {
                     "type": "done",
+                    "response_id": response_id,
                     "grounded": cached.grounded,
                     "cached": True,
                     "timing": timing.to_dict(),
                 }
+            )
+            _snapshot_response(
+                response_id=response_id,
+                user=user,
+                question=body.question,
+                answer=cached.answer,
+                source_ids=cached.source_ids,
             )
             log_request(
                 endpoint="/ask/stream",
@@ -290,6 +332,7 @@ def _stream_ask(
 
     meta = {
         "type": "metadata",
+        "response_id": response_id,
         "refused": prepared.refused,
         "answer": prepared.refusal_answer if prepared.refused else None,
         "source_ids": source_ids,
@@ -312,10 +355,18 @@ def _stream_ask(
         yield _ndjson_line(
             {
                 "type": "done",
+                "response_id": response_id,
                 "grounded": None,
                 "cached": False,
                 "timing": timing.to_dict(),
             }
+        )
+        _snapshot_response(
+            response_id=response_id,
+            user=user,
+            question=body.question,
+            answer=prepared.refusal_answer,
+            source_ids=[],
         )
         log_request(
             endpoint="/ask/stream",
@@ -365,10 +416,18 @@ def _stream_ask(
     yield _ndjson_line(
         {
             "type": "done",
+            "response_id": response_id,
             "grounded": result.grounded,
             "cached": False,
             "timing": timing.to_dict(),
         }
+    )
+    _snapshot_response(
+        response_id=response_id,
+        user=user,
+        question=body.question,
+        answer=result.answer,
+        source_ids=result.source_ids,
     )
     log_request(
         endpoint="/ask/stream",
@@ -456,6 +515,7 @@ def ask_endpoint(
     user = _user_label(request, current_user_email)
     skip = _skip_cache(request, body)
     history = _history_list(body)
+    response_id = uuid4().hex
 
     if not skip:
         cached = answer_cache.get(_cache_key(body, current_user_email))
@@ -475,11 +535,19 @@ def ask_endpoint(
                 cached=True,
             )
             timing.log(user=user, cached=True)
+            _snapshot_response(
+                response_id=response_id,
+                user=user,
+                question=body.question,
+                answer=result.answer,
+                source_ids=result.source_ids,
+            )
             return _result_to_response(
                 result,
                 cached=True,
                 timing=timing,
                 include_sources=body.include_sources,
+                response_id=response_id,
             )
 
     try:
@@ -514,11 +582,19 @@ def ask_endpoint(
                 cached=False,
             )
             timing.log(user=user, cached=False)
+            _snapshot_response(
+                response_id=response_id,
+                user=user,
+                question=body.question,
+                answer=result.answer,
+                source_ids=result.source_ids,
+            )
             return _result_to_response(
                 result,
                 cached=False,
                 timing=timing,
                 include_sources=body.include_sources,
+                response_id=response_id,
             )
 
         client = prepared.client
@@ -571,11 +647,19 @@ def ask_endpoint(
         cached=False,
     )
     timing.log(user=user, cached=False)
+    _snapshot_response(
+        response_id=response_id,
+        user=user,
+        question=body.question,
+        answer=result.answer,
+        source_ids=result.source_ids,
+    )
     return _result_to_response(
         result,
         cached=False,
         timing=timing,
         include_sources=body.include_sources,
+        response_id=response_id,
     )
 @app.post("/ask/stream")
 def ask_stream_endpoint(
@@ -597,6 +681,26 @@ def ask_stream_endpoint(
     return StreamingResponse(
         event_generator(),
         media_type="application/x-ndjson",
+    )
+
+
+@app.post("/feedback", response_model=FeedbackResponse)
+def feedback_endpoint(
+    body: FeedbackRequest,
+    _: None = Depends(check_rate_limit),
+    current_user_email: str = Depends(get_current_user_email),
+) -> FeedbackResponse:
+    """Attach a thumbs up/down to a previously returned /ask response_id."""
+    record = feedback_store.submit(body.response_id, body.rating)
+    if record is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No answer found for response_id {body.response_id!r}",
+        )
+    return FeedbackResponse(
+        response_id=record.response_id,
+        rating=body.rating,
+        received=True,
     )
 
 
