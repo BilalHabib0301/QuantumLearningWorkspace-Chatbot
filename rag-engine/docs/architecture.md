@@ -9,7 +9,7 @@ We use `all-MiniLM-L6-v2` to embed questions and retrieve the top 10 candidates 
 ### 2. LLM Re-ranking
 We use an LLM call to pick the top 3-4 most relevant chunks from the 10 candidates. The re-ranking prompt instructs the LLM to prioritize chunks that cover different aspects of a question or reveal contradictions.
 
-**Important finding from multi-run testing (5 runs x 2 prompts):** The Groq model (GPT-OSS-120B) already includes both conflicting chunks in 100% of runs even with the simpler "relevance only" prompt for our test scenario. This means the "conflict-aware" prompt is a **safety reinforcement**, not a fix for a reproducible bug. Its value lies in:
+**Important finding from multi-run testing (5 runs x 2 prompts):** For this specific tested conflict scenario (temperature contradiction), the Groq model (GPT-OSS-120B) already included both conflicting chunks in 100% of runs, even with the simpler "relevance only" prompt. This indicates the base model handles this specific type of two-source numeric conflict reasonably well; the "conflict-aware" prompt is added as explicit reinforcement and documentation of architectural intent, rather than a fix for a previously reproducible failure in this exact scenario. Its broader value lies in:
 - Guarding against potential regression if the base model changes
 - Providing explicit guidance for more ambiguous or subtle conflict scenarios
 - Documenting architectural intent clearly in the prompt itself
