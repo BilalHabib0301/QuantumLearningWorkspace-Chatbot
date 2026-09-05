@@ -74,6 +74,10 @@ class TimingInfo(BaseModel):
 
 
 class AskResponse(BaseModel):
+    response_id: str = Field(
+        default="",
+        description="Unique id for this response; the frontend echoes it back to /feedback",
+    )
     answer: str
     refused: bool = False
     no_documents: bool = False
@@ -87,6 +91,19 @@ class AskResponse(BaseModel):
     conflict_hint: bool = False
     cached: bool = False
     timing: TimingInfo | None = None
+
+
+class FeedbackRequest(BaseModel):
+    response_id: str = Field(..., min_length=1, max_length=64)
+    rating: Literal["up", "down"] = Field(
+        ..., description="Thumbs up or thumbs down for the referenced answer"
+    )
+
+
+class FeedbackResponse(BaseModel):
+    response_id: str
+    rating: Literal["up", "down"]
+    received: bool = True
 
 
 class HealthResponse(BaseModel):
