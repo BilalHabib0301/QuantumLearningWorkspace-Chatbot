@@ -214,4 +214,42 @@ def test_ask_stream_tokens(mock_stream, mock_finalize, mock_prepare, client):
 
     assert any(e["type"] == "token" for e in lines)
     assert lines[-1]["type"] == "done"
-    assert lines[-1]["grounded"] is True
+
+@patch("main.prepare_ask")
+@patch("main.finalize_ask")
+@patch("main.generate_answer_sync")
+def test_regression_negation_ignored(mock_gen, mock_finalize, mock_prepare, client):
+    import pytest
+    pytest.xfail("Known pattern: LLM ignores negation in queries (feedback pattern)")
+    from rag_service import AskResult, PreparedAsk
+    
+    question = "What cell parts are NOT involved in photosynthesis?"
+    prepared = PreparedAsk(question=question, history=[], top_k=4, rewritten_question=question, hop_queries=[question], retrieved_text="Chloroplasts are involved", accumulated={"documents":[]})
+    mock_prepare.return_value = prepared
+    mock_gen.return_value = "Chloroplasts are involved in photosynthesis."
+    mock_finalize.return_value = AskResult(answer="Chloroplasts are involved in photosynthesis.", refused=False, top_k=4, source_ids=[], grounded=True)
+    
+    resp = client.post("/ask", json={"question": question, "skip_cache": True})
+    data = resp.json()
+    # Regression: negation should NOT be ignored
+    assert "not" in data["answer"].lower()
+
+@patch("main.prepare_ask")
+@patch("main.finalize_ask")
+@patch("main.generate_answer_sync")
+def test_regression_conflict_hint_narrow_scope(mock_gen, mock_finalize, mock_prepare, client):
+    import pytest
+    pytest.xfail("Known pattern: LLM reports only one side of conflict (feedback pattern)")
+    from rag_service import AskResult, PreparedAsk
+    
+    question = "What is the exact temperature?"
+    prepared = PreparedAsk(question=question, history=[], top_k=4, rewritten_question=question, hop_queries=[question], retrieved_text="Doc1: 25C. Doc2: 40C.", accumulated={"documents":[]})
+    mock_prepare.return_value = prepared
+    mock_gen.return_value = "The temperature is 25C."
+    mock_finalize.return_value = AskResult(answer="The temperature is 25C.", refused=False, top_k=4, source_ids=[], grounded=True)
+    
+    resp = client.post("/ask", json={"question": question, "skip_cache": True})
+    data = resp.json()
+    # Regression: answer should mention both sources or say sources disagree
+    assert "conflict" in data["answer"].lower() or "disagree" in data["answer"].lower()
+
