@@ -429,6 +429,10 @@ def rerank_chunks(
                 "You re-rank retrieved document chunks for a search query. "
                 f"Return ONLY a comma-separated list of the best {top_k} chunk ids "
                 "in order of relevance (most relevant first). "
+                "CRITICAL: Prioritize chunks that cover DIFFERENT aspects of the question "
+                "or reveal CONTRADICTIONS between sources. If multiple chunks provide "
+                "conflicting facts about the same topic, include them all so the "
+                "final answer can report the disagreement. "
                 "Use the exact ids shown in brackets. No other text."
             ),
         },
