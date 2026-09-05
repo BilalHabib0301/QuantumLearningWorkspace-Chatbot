@@ -12,6 +12,7 @@ __pycache__/
 
 # Debug artifacts
 rag-engine/chroma_data/
+rag-engine/logs/
 server_*.log
 server_*.err.log
 verify_parser.py

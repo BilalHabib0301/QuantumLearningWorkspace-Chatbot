@@ -37,6 +37,7 @@ from rag_service import (
 )
 from schemas import AskRequest, AskResponse, HealthResponse, SourceItem, TimingInfo
 from auth import get_current_user_email
+from request_logger import log_request
 from timing_logger import TimingRecord
 
 _engine: RagEngine | None = None
@@ -241,6 +242,14 @@ def _stream_ask(
                     "timing": timing.to_dict(),
                 }
             )
+            log_request(
+                endpoint="/ask/stream",
+                user_id=user,
+                question=body.question,
+                timing=timing,
+                grounded=cached.grounded,
+                cached=True,
+            )
             timing.log(user=user, cached=True)
             return
 
@@ -260,6 +269,14 @@ def _stream_ask(
         )
         timing.end_retrieval()
     except (ValueError, RuntimeError) as exc:
+        log_request(
+            endpoint="/ask/stream",
+            user_id=user,
+            question=body.question,
+            timing=timing,
+            grounded=None,
+            cached=False,
+        )
         raise exc
 
     source_ids = []
@@ -300,6 +317,14 @@ def _stream_ask(
                 "timing": timing.to_dict(),
             }
         )
+        log_request(
+            endpoint="/ask/stream",
+            user_id=user,
+            question=body.question,
+            timing=timing,
+            grounded=None,
+            cached=False,
+        )
         timing.log(user=user, cached=False)
         return
 
@@ -311,9 +336,20 @@ def _stream_ask(
 
     timing.start_llm()
     answer_parts: list[str] = []
-    for token in stream_answer_tokens(client, prepared):
-        answer_parts.append(token)
-        yield _ndjson_line({"type": "token", "content": token})
+    try:
+        for token in stream_answer_tokens(client, prepared):
+            answer_parts.append(token)
+            yield _ndjson_line({"type": "token", "content": token})
+    except (ValueError, RuntimeError) as exc:
+        log_request(
+            endpoint="/ask/stream",
+            user_id=user,
+            question=body.question,
+            timing=timing,
+            grounded=None,
+            cached=False,
+        )
+        raise exc from exc
     timing.end_llm()
 
     answer = "".join(answer_parts)
@@ -333,6 +369,14 @@ def _stream_ask(
             "cached": False,
             "timing": timing.to_dict(),
         }
+    )
+    log_request(
+        endpoint="/ask/stream",
+        user_id=user,
+        question=body.question,
+        timing=timing,
+        grounded=result.grounded,
+        cached=False,
     )
     timing.log(user=user, cached=False)
 
@@ -422,6 +466,14 @@ def ask_endpoint(
             result = _cache_entry_to_result(cached, body.top_k or engine.default_top_k)
             for k, v in _timing_headers(timing, cached=True).items():
                 response.headers[k] = v
+            log_request(
+                endpoint="/ask",
+                user_id=user,
+                question=body.question,
+                timing=timing,
+                grounded=result.grounded,
+                cached=True,
+            )
             timing.log(user=user, cached=True)
             return _result_to_response(
                 result,
@@ -453,6 +505,14 @@ def ask_endpoint(
             timing.finish()
             for k, v in _timing_headers(timing, cached=False).items():
                 response.headers[k] = v
+            log_request(
+                endpoint="/ask",
+                user_id=user,
+                question=body.question,
+                timing=timing,
+                grounded=result.grounded,
+                cached=False,
+            )
             timing.log(user=user, cached=False)
             return _result_to_response(
                 result,
@@ -480,12 +540,36 @@ def ask_endpoint(
             )
 
     except ValueError as exc:
+        log_request(
+            endpoint="/ask",
+            user_id=user,
+            question=body.question,
+            timing=timing,
+            grounded=None,
+            cached=False,
+        )
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
+        log_request(
+            endpoint="/ask",
+            user_id=user,
+            question=body.question,
+            timing=timing,
+            grounded=None,
+            cached=False,
+        )
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     for k, v in _timing_headers(timing, cached=False).items():
         response.headers[k] = v
+    log_request(
+        endpoint="/ask",
+        user_id=user,
+        question=body.question,
+        timing=timing,
+        grounded=result.grounded,
+        cached=False,
+    )
     timing.log(user=user, cached=False)
     return _result_to_response(
         result,
