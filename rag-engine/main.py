@@ -470,6 +470,11 @@ app.add_middleware(
 )
 
 
+@app.get("/")
+def read_root():
+    return {"status": "Chatbot is running!"}
+
+
 @app.get("/health", response_model=HealthResponse)
 def health_check() -> HealthResponse:
     groq_ok = bool(os.environ.get("GROQ_API_KEY", "").strip())
