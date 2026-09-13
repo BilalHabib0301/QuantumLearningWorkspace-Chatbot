@@ -38,6 +38,7 @@ if str(RAG_ENGINE_DIR) not in sys.path:
 
 from eval.eval_suite import _contains_any  # noqa: E402
 from hybrid_search import get_bm25_index, hybrid_retrieve, is_hybrid_relevant  # noqa: E402
+import rag_service  # noqa: E402
 from rag_service import (  # noqa: E402
     REFUSAL_MESSAGE,
     ask,
@@ -50,6 +51,38 @@ CASES_PATH = RAG_ENGINE_DIR / "eval" / "cases.json"
 DEFAULT_REPORT = RAG_ENGINE_DIR / "eval" / "hybrid_vs_semantic_report.md"
 RETRIEVAL_POOL = 10
 METHODS = ("semantic", "hybrid")
+
+# --- Groq per-call retry with exponential backoff -------------------------
+# The free-tier Groq API rate-limits individual chat calls aggressively. The
+# outer run_answer_case retry only retries the whole ask(); that is not enough
+# because a single ask() makes several consecutive LLM calls (rewrite, rerank,
+# answer, grounding) and each can be rate-limited independently. Patching
+# _call_groq_safe lets every individual call back off and retry on its own,
+# which matches the per-call nature of Groq's rate limiting.
+_original_call_groq_safe = rag_service._call_groq_safe
+
+PER_CALL_RETRIES = 4
+PER_CALL_BACKOFF_S = 2.0
+
+
+def _call_groq_safe_with_retry(client, **kwargs):
+    last_exc = None
+    for attempt in range(PER_CALL_RETRIES + 1):
+        try:
+            return _original_call_groq_safe(client, **kwargs)
+        except RuntimeError as exc:
+            msg = str(exc)
+            if not any(s in msg for s in ("busy right now", "returned an error", "temporarily unavailable")):
+                raise
+            last_exc = exc
+            if attempt < PER_CALL_RETRIES:
+                wait = PER_CALL_BACKOFF_S * (2 ** attempt)
+                print(f"    (call rate-limited, retry {attempt+1}/{PER_CALL_RETRIES} in {wait:.0f}s...)")
+                time.sleep(wait)
+    raise last_exc
+
+
+rag_service._call_groq_safe = _call_groq_safe_with_retry
 
 
 def _norm(text: str) -> str:
@@ -128,7 +161,7 @@ def retrieval_metrics(results, expect, max_distance):
 
 
 MAX_RETRIES = 3
-BASE_BACKOFF_S = 8.0
+BASE_BACKOFF_S = 2.0
 
 def run_answer_case(engine, case, method, rerank, sleep_s=0.0):
     expect = case.get("expect") or {}
@@ -153,10 +186,20 @@ def run_answer_case(engine, case, method, rerank, sleep_s=0.0):
             break
         except Exception as exc:
             last_exc = exc
-            if attempt < MAX_RETRIES:
-                wait = BASE_BACKOFF_S * (2 ** attempt)
-                print(f"    (rate-limited, retry {attempt+1}/{MAX_RETRIES} in {wait:.0f}s...)")
-                time.sleep(wait)
+            # Check for transient errors from _call_groq_safe.
+            # "busy right now" = 429 RateLimitError
+            # "returned an error" = APIStatusError (often 5xx or transient)
+            # "temporarily unavailable" = APIConnectionError / TimeoutError
+            msg = str(exc)
+            is_transient = any(s in msg for s in ("busy right now", "returned an error", "temporarily unavailable"))
+            
+            if is_transient:
+                if attempt < MAX_RETRIES:
+                    wait = BASE_BACKOFF_S * (2 ** attempt)
+                    print(f"    (transient error, retry {attempt+1}/{MAX_RETRIES} in {wait:.0f}s...)")
+                    time.sleep(wait)
+                    continue
+                
     if last_exc is not None:
         return {"passed": False, "error": str(last_exc), "latency_ms": None, "grounded": None}
     elapsed_ms = (time.perf_counter() - started) * 1000.0
