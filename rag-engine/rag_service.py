@@ -97,6 +97,7 @@ class SourceInfo:
     preview: str
     source: str = ""
     document: str = ""
+    page: int | None = None
 
 
 @dataclass
@@ -590,11 +591,17 @@ def _build_sources(results: dict[str, Any]) -> list[SourceInfo]:
         chunk_id = ids[i] if ids else f"result_{i}"
         distance = distances[i] if distances is not None else None
         source_name = ""
+        document_name = ""
+        page_num: int | None = None
         if metadatas and i < len(metadatas) and isinstance(metadatas[i], dict):
             source_name = str(metadatas[i].get("source") or "")
-        document_name = ""
-        if metadatas and i < len(metadatas) and isinstance(metadatas[i], dict):
             document_name = str(metadatas[i].get("document") or "")
+            raw_page = metadatas[i].get("page")
+            if raw_page is not None and str(raw_page).strip() != "":
+                try:
+                    page_num = int(raw_page)
+                except (TypeError, ValueError):
+                    page_num = None
         sources.append(
             SourceInfo(
                 id=chunk_id,
@@ -602,6 +609,7 @@ def _build_sources(results: dict[str, Any]) -> list[SourceInfo]:
                 preview=chunk_preview(doc),
                 source=source_name,
                 document=document_name,
+                page=page_num,
             )
         )
     return sources

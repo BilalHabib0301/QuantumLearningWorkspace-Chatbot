@@ -64,6 +64,7 @@ class SourceItem(BaseModel):
     preview: str
     source: str = ""
     document: str = ""
+    page: int | None = None
 
 
 class TimingInfo(BaseModel):

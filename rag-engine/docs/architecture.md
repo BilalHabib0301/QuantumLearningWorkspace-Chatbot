@@ -92,3 +92,34 @@ When a user asks a question that is too vague to retrieve or answer meaningfully
 | `test_ask_returns_clarifying_message_without_llm` | full ask() pipeline | needed_clarification=True, correct message |
 | `test_ask_clarification_returns_clarifying_message` | /ask endpoint mock | CLARIFICATION_MESSAGE in response |
 | `test_ask_stream_clarification_metadata_done` | /ask/stream endpoint mock | metadata with is_clarification=True |
+
+---
+
+## Source Attribution: Page Numbers in Citations (Phase 11 Task 2)
+
+Page-number support is implemented on the **citation/display side** of the rag-engine, **pending real page metadata from Team Lambda's ingestion fix** (ai-ml/ingestion/pdf/). That dependency is noted but not yet resolved — ingestion currently ships chunks without a `page` field.
+
+### Field name / schema
+
+The consuming side reads an optional metadata key **`page`** (integer) from a retrieved chunk's metadata, matching what Team Lambda's ingestion fix is expected to emit. It flows through the existing chunk-metadata structures:
+
+| structure | file | field |
+|---|---|---|
+| retrieval metadata dict | ChromaDB chunk metadata (Lambda side) | `"page": int` — optional/nullable |
+| `SourceInfo` dataclass | `rag_service.py` | `page: int | None = None` |
+| `SourceItem` schema | `schemas.py` | `page: int | None = None` |
+
+`SourceInfo`/`SourceItem` already carried `document` + `source`; `page` is additive, so old chunks (ingested before Lambda's fix ships) simply omit it. `_build_sources()` tolerantly coerces the metadata value to `int` and falls back to `None` on missing/unparseable values. The value survives the cache round-trip (`cache.py` / `main.py` `_cache_entry_to_result`).
+
+### Display
+
+`citations.py` provides `format_citation(source)`, which renders:
+
+- `Source: [Document Name], Page 4` — when `page` is present
+- `Source: [Document Name]` — when `page` is missing (no `Page None` / broken text)
+
+Both CLI demos (`chunked_retrieval.py`, `memory/conversational_rag.py`) use it. When Team Lambda's ingestion starts emitting `page`, no code change is needed on this side.
+
+### Test coverage
+
+`tests/test_citations.py` verifies with mocked chunk data: one chunk with `page` present and one without — both render correctly — plus fallback behavior with no document/page and `_build_sources()` reading `page` from mocked retrieval metadata.
