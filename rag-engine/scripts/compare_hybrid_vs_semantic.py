@@ -52,37 +52,54 @@ DEFAULT_REPORT = RAG_ENGINE_DIR / "eval" / "hybrid_vs_semantic_report.md"
 RETRIEVAL_POOL = 10
 METHODS = ("semantic", "hybrid")
 
-# --- Groq per-call retry with exponential backoff -------------------------
-# The free-tier Groq API rate-limits individual chat calls aggressively. The
-# outer run_answer_case retry only retries the whole ask(); that is not enough
-# because a single ask() makes several consecutive LLM calls (rewrite, rerank,
-# answer, grounding) and each can be rate-limited independently. Patching
-# _call_groq_safe lets every individual call back off and retry on its own,
-# which matches the per-call nature of Groq's rate limiting.
+# --- Groq call wrapper: proactive throttle + retry fallback ----------------
+# Free-tier Groq caps at ~30 RPM. Reactive retry burns through backoff waits
+# without preventing throttling. Instead, proactively space every call so the
+# RPM ceiling is never hit, and keep retry only for genuine transient errors.
 _original_call_groq_safe = rag_service._call_groq_safe
 
-PER_CALL_RETRIES = 4
+# ~20 RPM with headroom: one call every 3 seconds.
+MIN_CALL_INTERVAL_S = 3.0
+_last_call_time = 0.0
+
+# Fallback retry for transient errors (should rarely trigger if throttle works).
+MAX_RETRIES = 3
 PER_CALL_BACKOFF_S = 2.0
 
+RATE_LIMIT_KEYWORDS = ("busy right now", "returned an error", "temporarily unavailable")
 
-def _call_groq_safe_with_retry(client, **kwargs):
+
+def _call_groq_safe_throttled(client, **kwargs):
+    global _last_call_time
+
+    # --- proactive throttle: wait for our turn before firing ---
+    now = time.monotonic()
+    wait_for_slot = _last_call_time + MIN_CALL_INTERVAL_S - now
+    if wait_for_slot > 0:
+        time.sleep(wait_for_slot)
+    _last_call_time = time.monotonic()
+
+    # --- retry fallback for genuine transient errors ---
     last_exc = None
-    for attempt in range(PER_CALL_RETRIES + 1):
+    for attempt in range(MAX_RETRIES + 1):
         try:
-            return _original_call_groq_safe(client, **kwargs)
+            result = _original_call_groq_safe(client, **kwargs)
+            _last_call_time = time.monotonic()
+            return result
         except RuntimeError as exc:
             msg = str(exc)
-            if not any(s in msg for s in ("busy right now", "returned an error", "temporarily unavailable")):
+            if not any(s in msg for s in RATE_LIMIT_KEYWORDS):
                 raise
             last_exc = exc
-            if attempt < PER_CALL_RETRIES:
+            if attempt < MAX_RETRIES:
                 wait = PER_CALL_BACKOFF_S * (2 ** attempt)
-                print(f"    (call rate-limited, retry {attempt+1}/{PER_CALL_RETRIES} in {wait:.0f}s...)")
+                print(f"    (transient error, retry {attempt+1}/{MAX_RETRIES} in {wait:.0f}s...)")
                 time.sleep(wait)
+                _last_call_time = time.monotonic()
     raise last_exc
 
 
-rag_service._call_groq_safe = _call_groq_safe_with_retry
+rag_service._call_groq_safe = _call_groq_safe_throttled
 
 
 def _norm(text: str) -> str:
