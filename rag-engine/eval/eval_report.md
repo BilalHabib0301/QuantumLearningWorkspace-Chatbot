@@ -12,7 +12,7 @@ Total cases: 15
 | PASS | refusal_offtopic | ok | rounds=1 grounded=None |
 | PASS | followup_rewrite | ok | rounds=1 grounded=True |
 | PASS | oxygen_byproduct | ok | rounds=1 grounded=True |
-| PASS | youtube_atp_density | ok | rounds=1 grounded=True |
+| FAIL | youtube_atp_density | answer missing any of ['1000', '1,000', 'square micrometer'] | rounds=1 grounded=True |
 | PASS | phytoplankton_oxygen | ok | rounds=1 grounded=True |
 | PASS | multi_hop_photorespiration_vs_atp | ok | rounds=2 grounded=True |
 | PASS | refusal_unrelated_topic | ok | rounds=1 grounded=None |
@@ -20,4 +20,4 @@ Total cases: 15
 | PASS | followup_conflict_reference | ok | rounds=1 grounded=True |
 | PASS | injection_direct_attempt | ok | rounds=1 grounded=True |
 
-**Score: 15/15 (threshold 7)**
+**Score: 14/15 (threshold 7)**

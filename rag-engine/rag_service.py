@@ -23,6 +23,8 @@ from groq import (
 )
 
 from chunker import chunk_data_directory, chunk_file
+from clarify import needs_clarification
+from hybrid_search import hybrid_retrieve, is_hybrid_relevant
 from vector_store import (
     DEFAULT_MAX_DISTANCE,
     DEFAULT_MODEL_NAME,
@@ -49,6 +51,12 @@ MAX_TOP_K = 8
 RERANK_CANDIDATE_COUNT = 10
 DEFAULT_MAX_RETRIEVAL_ROUNDS = 3
 CONFLICT_SOURCE_NAME = "conflict_notes.txt"
+VALID_RETRIEVAL_METHODS = ("semantic", "hybrid")
+CLARIFICATION_MESSAGE = (
+    "I'm not sure which topic you mean. Could you rephrase or give me a bit more "
+    "detail (for example, which concept, source, or part of your notes you want "
+    "to know more about) so I can point you at the right material?"
+)
 
 _GROUNDED_RE = re.compile(r"GROUNDED\s*:\s*(true|false)", re.IGNORECASE)
 _ENOUGH_RE = re.compile(r"ENOUGH\s*:\s*(true|false)", re.IGNORECASE)
@@ -104,6 +112,7 @@ class AskResult:
     hop_queries: list[str] = field(default_factory=list)
     conflict_hint: bool = False
     no_documents: bool = False
+    needed_clarification: bool = False
 
 
 @dataclass
@@ -122,6 +131,8 @@ class PreparedAsk:
     no_documents: bool = False
     include_sources: bool = True
     client: Groq | None = None
+    clarification_required: bool = False
+    clarification_message: str = ""
 
 @dataclass
 class RagEngine:
@@ -165,6 +176,20 @@ def _env_bool(name: str, default: bool) -> bool:
     if raw is None or raw.strip() == "":
         return default
     return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _resolve_retrieval_method(value: str | None) -> str:
+    """Resolve the retrieval method: explicit arg wins, else RETRIEVAL_METHOD env."""
+    if value is None:
+        value = (os.environ.get("RETRIEVAL_METHOD") or "").strip().lower()
+    return value if value in VALID_RETRIEVAL_METHODS else "semantic"
+
+
+def _round_relevant(method: str, results: dict[str, Any], max_distance: float) -> bool:
+    """First-round relevance gate, aware of the retrieval method's distance field."""
+    if method == "hybrid":
+        return is_hybrid_relevant(results, max_distance)
+    return is_relevant(results.get("distances"), max_distance=max_distance)
 
 
 def clamp_top_k(top_k: int | None, default: int = DEFAULT_TOP_K) -> int:
@@ -776,6 +801,25 @@ def _refusal_result(
     )
 
 
+def _clarification_result(
+    prepared: PreparedAsk,
+) -> AskResult:
+    """Build an AskResult that asks the user a clarifying question instead of answering."""
+    return AskResult(
+        answer=prepared.clarification_message,
+        refused=False,
+        top_k=prepared.top_k,
+        sources=[],
+        rewritten_question=prepared.rewritten_question,
+        grounded=None,
+        source_ids=[],
+        retrieval_rounds=0,
+        hop_queries=[],
+        conflict_hint=False,
+        needed_clarification=True,
+    )
+
+
 def finalize_ask(
     engine: RagEngine,
     prepared: PreparedAsk,
@@ -816,6 +860,7 @@ def prepare_ask(
     rerank: bool | None = None,
     multi_hop: bool | None = None,
     user_id: str | None = None,
+    retrieval_method: str | None = None,
 ) -> PreparedAsk:
     """
     Run rewrite → multi-hop retrieve → relevance gate.
@@ -845,6 +890,23 @@ def prepare_ask(
             client=None,
         )
 
+    if needs_clarification(cleaned, hist):
+        return PreparedAsk(
+            question=cleaned,
+            history=hist,
+            top_k=k,
+            rewritten_question=cleaned,
+            hop_queries=[],
+            retrieved_text="",
+            accumulated={"documents": [], "distances": [], "ids": [], "metadatas": []},
+            refused=False,
+            include_sources=include_sources,
+            client=None,
+            clarification_required=True,
+            clarification_message=CLARIFICATION_MESSAGE,
+        )
+
+    method = _resolve_retrieval_method(retrieval_method)
     env_rerank = _env_bool("ENABLE_RERANK", True)
     do_rerank = env_rerank if rerank is None else (bool(rerank) and env_rerank)
 
@@ -873,11 +935,11 @@ def prepare_ask(
     for round_idx in range(max_rounds):
         hop_queries.append(current_query)
         round_results, client = _retrieve_round(
-            engine, client, current_query, k, do_rerank, user_id=user_id
+            engine, client, current_query, k, do_rerank,
+            user_id=user_id, retrieval_method=method,
         )
-        if round_idx == 0 and not is_relevant(
-            round_results.get("distances"),
-            max_distance=engine.max_distance,
+        if round_idx == 0 and not _round_relevant(
+            method, round_results, engine.max_distance
         ):
             return PreparedAsk(
                 question=cleaned,
@@ -938,16 +1000,26 @@ def _retrieve_round(
     k: int,
     do_rerank: bool,
     user_id: str | None = None,
+    retrieval_method: str | None = None,
 ) -> tuple[dict[str, Any], Groq | None]:
+    method = _resolve_retrieval_method(retrieval_method)
     n_retrieve = RERANK_CANDIDATE_COUNT if do_rerank else k
     n_retrieve = max(1, min(n_retrieve, max(engine.chunks_indexed, 1)))
-    results = retrieve(
-        engine.collection,
-        engine.embedding_model,
-        query,
-        n_results=n_retrieve,
-        user_id=user_id,
-    )
+    if method == "hybrid":
+        results = hybrid_retrieve(
+            engine,
+            query,
+            n_results=n_retrieve,
+            user_id=user_id,
+        )
+    else:
+        results = retrieve(
+            engine.collection,
+            engine.embedding_model,
+            query,
+            n_results=n_retrieve,
+            user_id=user_id,
+        )
     if do_rerank and len(results.get("ids") or []) > k:
         if client is None:
             client = _get_groq(engine)
@@ -968,6 +1040,7 @@ def ask(
     rerank: bool | None = None,
     multi_hop: bool | None = None,
     user_id: str | None = None,
+    retrieval_method: str | None = None,
 ) -> AskResult:
     """
     Full pipeline: prepare → sync answer → finalize (grounding).
@@ -981,11 +1054,17 @@ def ask(
         rerank=rerank,
         multi_hop=multi_hop,
         user_id=user_id,
+        retrieval_method=retrieval_method,
     )
     if prepared.refused:
         if update_history and history is not None:
             _append_history(history, prepared.question, prepared.refusal_answer)
         return _refusal_result(prepared)
+
+    if prepared.clarification_required:
+        if update_history and history is not None:
+            _append_history(history, prepared.question, prepared.clarification_message)
+        return _clarification_result(prepared)
 
     client = prepared.client or _get_groq(engine)
     answer = generate_answer_sync(client, prepared, strict=False)
