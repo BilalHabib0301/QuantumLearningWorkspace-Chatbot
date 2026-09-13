@@ -60,12 +60,12 @@ Full 15-case answer-level A/B blocked by Groq rate limiting at time of implement
 **Keep semantic-only as the default; hybrid is available as an optional path but does not justify a default switch on the current corpus.**
 
 Rationale:
-1. Retrieval quality is statistically indistinguishable — the demo corpus is small (7 chunks) and semantically diverse enough that MiniLM embeddings already retrieve all relevant content at top-10.
-2. Latency is equivalent (~40 ms steady-state for both).
-3. BM25 hybrid adds complexity (index building, caching, RRF fusion, a hybrid relevance gate) with no measurable quality gain on this corpus.
+1. Retrieval quality is statistically indistinguishable — the demo corpus is small (7 chunks) and semantically diverse enough that MiniLM embeddings already retrieve all relevant content at top-10. This was consistently observed in both the retrieval-level evaluation (15 cases) and a smaller 5-case answer-level sanity check.
+2. Latency is equivalent (~40-70 ms steady-state for both retrieval methods).
+3. BM25 hybrid adds complexity (index building, caching, RRF fusion, a hybrid relevance gate) with no measurable quality gain on this corpus for the eval suite's answer-level metrics, though a full, non-rate-limited comparison run is still needed.
 4. Hybrid may become valuable if the corpus grows to include documents where semantic similarity fails to capture exact terms (e.g., code, acronyms, part numbers) — at which point the toggle is already wired.
 
-The comparison script (`scripts/compare_hybrid_vs_semantic.py`) and report (`eval/hybrid_vs_semantic_report.md`) are kept for future re-evaluation as the corpus evolves.
+The comparison script (`scripts/compare_hybrid_vs_semantic.py`) and the final detailed report (`eval/hybrid_vs_semantic_report.md`) are kept for future re-evaluation as the corpus evolves.
 
 ---
 
