@@ -27,6 +27,7 @@ from rate_limiter import check_rate_limit, rate_limiter
 from rag_service import (
     RagEngine,
     SourceInfo,
+    _clarification_result,
     ask,
     create_collection,
     create_engine,
@@ -334,13 +335,20 @@ def _stream_ask(
         "type": "metadata",
         "response_id": response_id,
         "refused": prepared.refused,
-        "answer": prepared.refusal_answer if prepared.refused else None,
+        "answer": (
+            prepared.clarification_message
+            if prepared.clarification_required
+            else (prepared.refusal_answer if prepared.refused else None)
+        ),
         "source_ids": source_ids,
         "rewritten_question": prepared.rewritten_question,
         "retrieval_rounds": len(prepared.hop_queries),
         "hop_queries": prepared.hop_queries,
         "grounded": None,
-        "conflict_hint": False if prepared.refused else None,
+        "conflict_hint": False
+        if (prepared.refused or prepared.clarification_required)
+        else None,
+        "is_clarification": prepared.clarification_required,
         "cached": False,
         "timing": {
             **timing.to_dict(),
@@ -349,6 +357,35 @@ def _stream_ask(
         },
     }
     yield _ndjson_line(meta)
+
+    if prepared.clarification_required:
+        timing.finish()
+        yield _ndjson_line(
+            {
+                "type": "done",
+                "response_id": response_id,
+                "grounded": None,
+                "cached": False,
+                "timing": timing.to_dict(),
+            }
+        )
+        _snapshot_response(
+            response_id=response_id,
+            user=user,
+            question=body.question,
+            answer=prepared.clarification_message,
+            source_ids=[],
+        )
+        log_request(
+            endpoint="/ask/stream",
+            user_id=user,
+            question=body.question,
+            timing=timing,
+            grounded=None,
+            cached=False,
+        )
+        timing.log(user=user, cached=False)
+        return
 
     if prepared.refused:
         timing.finish()
@@ -470,6 +507,11 @@ app.add_middleware(
 )
 
 
+@app.get("/")
+def read_root():
+    return {"status": "Chatbot is running!"}
+
+
 @app.get("/health", response_model=HealthResponse)
 def health_check() -> HealthResponse:
     groq_ok = bool(os.environ.get("GROQ_API_KEY", "").strip())
@@ -565,6 +607,35 @@ def ask_endpoint(
             user_id=current_user_email,
         )
         timing.end_retrieval()
+
+        if prepared.clarification_required:
+            result = _clarification_result(prepared)
+            timing.finish()
+            for k, v in _timing_headers(timing, cached=False).items():
+                response.headers[k] = v
+            log_request(
+                endpoint="/ask",
+                user_id=user,
+                question=body.question,
+                timing=timing,
+                grounded=result.grounded,
+                cached=False,
+            )
+            timing.log(user=user, cached=False)
+            _snapshot_response(
+                response_id=response_id,
+                user=user,
+                question=body.question,
+                answer=result.answer,
+                source_ids=[],
+            )
+            return _result_to_response(
+                result,
+                cached=False,
+                timing=timing,
+                include_sources=body.include_sources,
+                response_id=response_id,
+            )
 
         if prepared.refused:
             from rag_service import _refusal_result

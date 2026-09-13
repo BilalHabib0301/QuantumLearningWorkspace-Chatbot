@@ -216,6 +216,74 @@ def test_ask_stream_tokens(mock_stream, mock_finalize, mock_prepare, client):
     assert lines[-1]["type"] == "done"
 
 @patch("main.prepare_ask")
+def test_ask_clarification_returns_clarifying_message(mock_prepare, client):
+    from rag_service import CLARIFICATION_MESSAGE, PreparedAsk
+
+    prepared = PreparedAsk(
+        question="tell me more",
+        history=[],
+        top_k=4,
+        rewritten_question="tell me more",
+        hop_queries=[],
+        retrieved_text="",
+        accumulated={"documents": [], "ids": [], "distances": [], "metadatas": []},
+        refused=False,
+        include_sources=True,
+        clarification_required=True,
+        clarification_message=CLARIFICATION_MESSAGE,
+    )
+    mock_prepare.return_value = prepared
+
+    resp = client.post(
+        "/ask",
+        json={"question": "tell me more", "skip_cache": True},
+        headers={"X-User-Id": "clarify-user"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["answer"] == CLARIFICATION_MESSAGE
+    assert data["refused"] is False
+    assert data["sources"] == []
+
+
+@patch("main.prepare_ask")
+def test_ask_stream_clarification_metadata(mock_prepare, client):
+    from rag_service import CLARIFICATION_MESSAGE, PreparedAsk
+
+    prepared = PreparedAsk(
+        question="what about that?",
+        history=[],
+        top_k=4,
+        rewritten_question="what about that?",
+        hop_queries=[],
+        retrieved_text="",
+        accumulated={"documents": [], "ids": [], "distances": [], "metadatas": []},
+        refused=False,
+        include_sources=True,
+        clarification_required=True,
+        clarification_message=CLARIFICATION_MESSAGE,
+    )
+    mock_prepare.return_value = prepared
+
+    with client.stream(
+        "POST",
+        "/ask/stream",
+        json={"question": "what about that?", "skip_cache": True},
+        headers={"X-User-Id": "stream-clarify"},
+    ) as resp:
+        assert resp.status_code == 200
+        lines = [json.loads(line) for line in resp.iter_lines() if line]
+
+    types = [e["type"] for e in lines]
+    assert types[0] == "metadata"
+    assert lines[0]["is_clarification"] is True
+    assert lines[0]["answer"] == CLARIFICATION_MESSAGE
+    assert lines[0]["refused"] is False
+    assert "token" not in types
+    assert types[-1] == "done"
+
+
+@patch("main.prepare_ask")
 @patch("main.finalize_ask")
 @patch("main.generate_answer_sync")
 def test_regression_negation_ignored(mock_gen, mock_finalize, mock_prepare, client):

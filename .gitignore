@@ -1,13 +1,9 @@
-venv/
+﻿venv/
 node_modules/
 __pycache__/
 .env
-.env
-venv/
 rag_venv/
-__pycache__/
 *.pyc
-
 *.egg-info/
 
 # Debug artifacts
@@ -31,14 +27,14 @@ verify_committed_phrasings.py
 verify_fixed_p2.py
 verify_injection_prompt.py
 verify_trigger.py
-check_sources.py
-find_reliable_phrasings.py
 rag-engine/scripts/live_adversarial_test.py
-raw_response_printer.py
-setup_and_test.py
-show_sources.py
-test_live_prompt.py
-verify_committed_phrasings.py
-verify_fixed_p2.py
-verify_injection_prompt.py
-verify_trigger.py
+
+# Comparison logs
+eval/*.log
+
+# Temp/IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
