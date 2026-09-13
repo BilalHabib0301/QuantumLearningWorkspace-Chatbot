@@ -111,6 +111,7 @@ def _sources_from_result(result: Any) -> tuple[list[SourceItem] | None, list[str
             preview=s.preview,
             source=getattr(s, "source", "") or "",
             document=getattr(s, "document", "") or "",
+            page=getattr(s, "page", None),
         )
         for s in (result.sources or [])
     ]
@@ -188,6 +189,7 @@ def _cache_entry_to_result(entry: Any, top_k: int) -> Any:
             preview=s.get("preview", ""),
             source=s.get("source", ""),
             document=s.get("document", ""),
+            page=s.get("page"),
         )
         for s in entry.sources
     ]

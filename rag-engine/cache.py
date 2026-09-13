@@ -214,6 +214,7 @@ def ask_result_to_cache_entry(result: Any, include_sources: bool = True) -> Cach
                     "preview": getattr(s, "preview", ""),
                     "source": getattr(s, "source", ""),
                     "document": getattr(s, "document", ""),
+                    "page": getattr(s, "page", None),
                 }
             )
     return CacheEntry(
