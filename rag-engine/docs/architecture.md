@@ -48,24 +48,24 @@ Per-case anchor winner: **13 ties, 0 wins either way** (2 refusal cases have no 
 
 **Notable gate difference:** `followup_conflict_reference` ("Which one was wrong?") — semantic gate refuses, hybrid gate passes. BM25 catches keyword overlap that semantic embedding distance alone misses on vague follow-ups. In the live pipeline, the rewrite step resolves this for both methods, so it is not a real answer-quality gap — but it demonstrates that BM25 provides a slightly more permissive first-pass gate on referential queries.
 
-**Answer-level** (full pipeline, rerank=False, 5-case warm-up subset):
+**Answer-level** (full pipeline, rerank=False, 5-case clean sample — accepted as final):
 
 | method | passed | grounded |
 |---|---|---|
 | semantic | 5/5 | 5 |
 | hybrid | 5/5 | 5 |
 
-Full 15-case answer-level A/B blocked by Groq free-tier rate limiting at time of implementation; re-runnable via `python scripts/compare_hybrid_vs_semantic.py --with-answers --sleep 2` (per-call retry backoff is built into the script).
+Parity was confirmed on a clean 5-case sample (5/5 PASS, 5/5 grounded for **both** methods). The full 15-case answer-level run (30 `ask()` calls, ~90 sequential LLM calls: rewrite/answer/grounding per case) was attempted **three times**, each a few hours apart, and every attempt was blocked by Groq free-tier rate limits. Even with proactive throttling (~3s spacing, ~20 RPM ceiling) and fallback retry, the API returned "busy right now" on essentially every non-refusal case. This is a **structural free-tier limit** (~30 RPM ceiling cannot sustain ~90 sequential calls), not a transient deployment issue. The answer-level comparison is documented for future re-run should the API tier change, via `python scripts/compare_hybrid_vs_semantic.py --with-answers` (proactive throttle + fallback retry are built into the script).
 
 ### Recommendation
 
 **Keep semantic-only as the default; hybrid is available as an optional path but does not justify a default switch on the current corpus.**
 
 Rationale:
-1. Retrieval quality is statistically indistinguishable — the demo corpus is small (7 chunks) and semantically diverse enough that MiniLM embeddings already retrieve all relevant content at top-10. This was consistently observed across the retrieval-level evaluation (15 cases, all ties on anchor coverage) and a 5-case answer-level sanity check (5/5 pass, 5/5 grounded for both).
+1. Retrieval quality is statistically indistinguishable — the demo corpus is small (7 chunks) and semantically diverse enough that MiniLM embeddings already retrieve all relevant content at top-10. This was consistently observed across the retrieval-level evaluation (15 cases, all ties on anchor coverage) and the accepted 5-case answer-level sample (5/5 pass, 5/5 grounded for both).
 2. Latency is equivalent (~65-70 ms steady-state for both retrieval methods).
 3. BM25 hybrid adds complexity (index building, caching, RRF fusion, a hybrid relevance gate) with no measurable answer-quality gain on this corpus. The one gate-behavior difference (hybrid lets through a vague follow-up that semantic refuses) is mitigated by the existing query-rewrite step.
-4. Hybrid may become valuable as the corpus grows with documents where semantic similarity fails to capture exact terms (e.g., code, acronyms, part numbers) — the toggle is already wired for future re-evaluation. To re-run: `python scripts/compare_hybrid_vs_semantic.py --with-answers --sleep 2`.
+4. Hybrid may become valuable as the corpus grows with documents where semantic similarity fails to capture exact terms (e.g., code, acronyms, part numbers) — the toggle is already wired for future re-evaluation. To re-run: `python scripts/compare_hybrid_vs_semantic.py --with-answers`.
 
 The comparison script (`scripts/compare_hybrid_vs_semantic.py`) and the final detailed report (`eval/hybrid_vs_semantic_report.md`) are kept for future re-evaluation as the corpus evolves.
 
