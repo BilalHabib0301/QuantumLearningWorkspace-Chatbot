@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import sys
 
+from citations import format_citation
 from rag_service import REFUSAL_MESSAGE, AskResult, create_engine, ask
 from vector_store import DEFAULT_TOP_K
 
@@ -37,8 +38,7 @@ def print_result(question: str, result: AskResult) -> None:
         print(f"\nRetrieved {len(result.sources)} chunk(s):")
         for src in result.sources:
             dist = f", distance={src.distance:.4f}" if src.distance is not None else ""
-            src_label = f" source={src.source}" if src.source else ""
-            print(f"  - {src.id}{dist}{src_label}: {src.preview}")
+            print(f"  - {src.id}{dist}: {src.preview} ({format_citation(src)})")
     print("\nLLM Final Answer:\n" if not result.refused else "\nRefusal:\n")
     print(result.answer)
     if result.refused and result.answer != REFUSAL_MESSAGE:

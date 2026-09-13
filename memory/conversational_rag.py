@@ -22,6 +22,7 @@ if str(RAG_ENGINE_DIR) not in sys.path:
     sys.path.insert(0, str(RAG_ENGINE_DIR))
 
 from rag_service import create_engine, ask  # noqa: E402
+from citations import format_citation  # noqa: E402
 from vector_store import DEFAULT_TOP_K  # noqa: E402
 
 SCRIPTED_TURNS = [
@@ -46,7 +47,7 @@ def _print_result(result) -> None:
         print(f"Retrieved {len(result.sources)} chunk(s):")
         for src in result.sources:
             dist = f", d={src.distance:.4f}" if src.distance is not None else ""
-            print(f"  - {src.id}{dist}: {src.preview}")
+            print(f"  - {src.id}{dist}: {src.preview} ({format_citation(src)})")
     print(f"\nAssistant: {result.answer}")
 
 
