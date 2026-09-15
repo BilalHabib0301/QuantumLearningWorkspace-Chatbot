@@ -43,6 +43,11 @@ RAG_ENGINE_DIR = Path(__file__).resolve().parent
 DATA_DIR = RAG_ENGINE_DIR / "data"
 DATA_FILE = DATA_DIR / "photosynthesis_overview.txt"
 HISTORY_TURN_CAP = 4
+# Conversation quality (Phase 11 Part C): when history exceeds the verbatim
+# turn cap and an LLM client is available, the older turns are condensed into
+# a single summary block that stays in the prompt instead of being hard-dropped.
+EARLIER_SUMMARY_PREFIX = "[Earlier conversation summary]"
+SUMMARY_HISTORY_ROLE = "user"
 REFUSAL_MESSAGE = "I don't have enough information to answer that"
 NO_DOCUMENTS_MESSAGE = "You haven't uploaded any documents yet. Please upload a PDF, notes, or a link before asking a question."
 GROQ_MODEL = "openai/gpt-oss-120b"
@@ -198,9 +203,67 @@ def clamp_top_k(top_k: int | None, default: int = DEFAULT_TOP_K) -> int:
     return max(MIN_TOP_K, min(MAX_TOP_K, value))
 
 
-def recent_history(history: list[dict], max_turns: int = HISTORY_TURN_CAP) -> list[dict]:
-    """Return the last max_turns user/assistant pairs."""
+def _is_summary_msg(message: dict) -> bool:
+    """True when this message is an 'earlier conversation summary' block."""
+    return (message.get("content") or "").startswith(EARLIER_SUMMARY_PREFIX)
+
+
+def _has_summary_block(history: list[dict]) -> bool:
+    return any(_is_summary_msg(m) for m in history)
+
+
+def condense_history(
+    client: Groq,
+    history: list[dict],
+    max_turns: int = HISTORY_TURN_CAP,
+) -> list[dict] | None:
+    """Compress the turns older than max_turns into one summary block.
+
+    Returns [summary block] + last max_turns turns verbatim, or None when
+    there is nothing to condense or the LLM summarization failed (the caller
+    then falls back to the plain hard-drop cap).
+    """
     max_messages = max_turns * 2
+    if len(history) <= max_messages:
+        return None
+    older = history[:-max_messages]
+    recent = history[-max_messages:]
+    summary = summarize_conversation(client, older)
+    if not summary:
+        return None
+    return [
+        {
+            "role": SUMMARY_HISTORY_ROLE,
+            "content": f"{EARLIER_SUMMARY_PREFIX}: {summary}",
+        }
+    ] + recent
+
+
+def recent_history(
+    history: list[dict],
+    max_turns: int = HISTORY_TURN_CAP,
+    client: Groq | None = None,
+) -> list[dict]:
+    """Return up to max_turns of the most recent user/assistant turns.
+
+    Without an LLM client this is the plain time-range cap (older turns are
+    dropped). When client is provided and history exceeds the cap, older turns
+    are condensed into an earlier-conversation summary block instead of being
+    hard-dropped, so facts from early turns stay referenceable. If the history
+    already carries a summary block, it is preserved and only the verbatim tail
+    is truncated.
+    """
+    if _has_summary_block(history):
+        summary_blocks = [m for m in history if _is_summary_msg(m)]
+        tail = [m for m in history if not _is_summary_msg(m)]
+        return summary_blocks + tail[-max_turns * 2 :]
+    max_messages = max_turns * 2
+    if len(history) <= max_messages:
+        return list(history)
+    if client is not None and _env_bool("ENABLE_HISTORY_COMPACTION", True):
+        condensed = condense_history(client, history, max_turns=max_turns)
+        if condensed is not None:
+            return condensed
     return history[-max_messages:]
 
 
@@ -227,6 +290,49 @@ def _call_groq_safe(client: Groq, **kwargs):
         ) from exc
 
 
+SUMMARY_SYSTEM_PROMPT = (
+    "You are a study-summarizer for a tutoring chat. Read the conversation "
+    "and write ONE concise, information-dense summary that a student could "
+    "later use to review. Preserve every concrete fact, name, number, "
+    "definition, and conclusion so that a later question can still reference "
+    "them accurately. Do not add outside information and do not answer any "
+    "questions in the conversation — just compress. Write in the language "
+    "of the conversation."
+)
+
+
+def summarize_conversation(client: Groq, history: list[dict]) -> str:
+    """Summarize a list of conversation turns (dedicated prompt, no retrieval).
+
+    Used by POST /conversations/summarize and by history compaction when a
+    conversation exceeds HISTORY_TURN_CAP turns. Returns the summary text or
+    an empty string on failure/empty input.
+    """
+    if not _history_nonempty(history):
+        return ""
+    lines = []
+    for msg in history:
+        role = msg.get("role", "user")
+        content = (msg.get("content") or "").strip()
+        if content:
+            lines.append(f"{role}: {content}")
+    history_block = "\n".join(lines)
+    messages = [
+        {
+            "role": "system",
+            "content": SUMMARY_SYSTEM_PROMPT,
+        },
+        {
+            "role": "user",
+            "content": f"Conversation:\n{history_block}\n\nSummary:",
+        },
+    ]
+    response = _call_groq_safe(
+        client, model=GROQ_MODEL, messages=messages, temperature=0.3
+    )
+    return (response.choices[0].message.content or "").strip()
+
+
 def rewrite_question(client: Groq | None, history: list[dict], question: str) -> str:
     """Turn a follow-up into a standalone search query using conversation history."""
     if not _history_nonempty(history):
@@ -235,7 +341,7 @@ def rewrite_question(client: Groq | None, history: list[dict], question: str) ->
         return question
 
     hist_lines = []
-    for msg in recent_history(history):
+    for msg in recent_history(history, client=client):
         role = msg.get("role", "user")
         content = (msg.get("content") or "").strip()
         if content:
@@ -927,6 +1033,9 @@ def prepare_ask(
     client: Groq | None = None
     if _history_nonempty(hist):
         client = _get_groq(engine)
+        # Condense once so both rewrite and answer generation see the same
+        # compacted context (older turns summarized, recent turns verbatim).
+        hist = recent_history(hist, client=client)
         rewritten = rewrite_question(client, hist, cleaned)
     else:
         rewritten = cleaned

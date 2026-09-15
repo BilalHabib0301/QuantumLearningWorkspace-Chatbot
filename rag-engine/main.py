@@ -22,12 +22,13 @@ from fastapi.responses import StreamingResponse
 import tempfile
 from pathlib import Path
 
-from cache import AnswerCache, answer_cache, ask_result_to_cache_entry
+from cache import AnswerCache, answer_cache, ask_result_to_cache_entry, summary_cache
 from rate_limiter import check_rate_limit, rate_limiter
 from rag_service import (
     RagEngine,
     SourceInfo,
     _clarification_result,
+    _get_groq,
     ask,
     create_collection,
     create_engine,
@@ -36,6 +37,7 @@ from rag_service import (
     load_env,
     prepare_ask,
     stream_answer_tokens,
+    summarize_conversation,
 )
 from schemas import (
     AskRequest,
@@ -44,6 +46,8 @@ from schemas import (
     FeedbackResponse,
     HealthResponse,
     SourceItem,
+    SummarizeRequest,
+    SummarizeResponse,
     TimingInfo,
 )
 from auth import get_current_user_email
@@ -85,7 +89,22 @@ def _history_list(body: AskRequest) -> list[dict] | None:
     return [{"role": m.role, "content": m.content} for m in body.history]
 
 
+def _count_turns(history: list[dict] | None) -> int:
+    """Number of user-role turns in a history list (assistant-only ignored)."""
+    return sum(1 for m in (history or []) if m.get("role") == "user")
+
+
 def _cache_key(body: AskRequest, user_email: str) -> str:
+    # TODO(Phase 11 Part C — raise with Maryam/TL before changing): this key is
+    # hashed from the client-supplied raw history (body.history), NOT from the
+    # server-side compacted history used in the prompt. So compaction in
+    # prepare_ask() does not change the key or break existing cache entries.
+    # However it DOES mean two conversations that differ only in turns older
+    # than HISTORY_TURN_CAP produce different keys yet virtually identical
+    # effective context after compaction — i.e. the key can over-differentiate
+    # and lower the hit rate as conversations grow. A more compact key (recent
+    # turns + summary fingerprint) would change invalidation/collision behavior
+    # elsewhere, so it needs sign-off before touching.
     return AnswerCache.make_key(
         user_email,
         body.question,
@@ -774,6 +793,43 @@ def feedback_endpoint(
         response_id=record.response_id,
         rating=body.rating,
         received=True,
+    )
+
+
+@app.post("/conversations/summarize", response_model=SummarizeResponse)
+def summarize_conversation_endpoint(
+    body: SummarizeRequest,
+    _: None = Depends(check_rate_limit),
+    current_user_email: str = Depends(get_current_user_email),
+) -> SummarizeResponse:
+    """Summarize a client-supplied conversation for study review.
+
+    Read-only operation: the history in the body is summarized by the LLM
+    using a dedicated summarization prompt (no retrieval). Posting the same
+    history again serves the cached summary without another LLM call.
+    """
+    engine = get_engine()
+    history = [{"role": m.role, "content": m.content} for m in body.history]
+    cache_key = summary_cache.make_key(current_user_email, history)
+    cached_summary = summary_cache.get(cache_key)
+    if cached_summary is not None:
+        return SummarizeResponse(
+            summary=cached_summary,
+            turn_count=_count_turns(history),
+            cached=True,
+        )
+    client = _get_groq(engine)
+    summary = summarize_conversation(client, history)
+    if not summary or not summary.strip():
+        raise HTTPException(
+            status_code=502,
+            detail="The AI service returned an empty summary",
+        )
+    summary_cache.set(cache_key, summary)
+    return SummarizeResponse(
+        summary=summary,
+        turn_count=_count_turns(history),
+        cached=False,
     )
 
 

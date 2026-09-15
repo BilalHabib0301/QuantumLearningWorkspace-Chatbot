@@ -123,3 +123,42 @@ Both CLI demos (`chunked_retrieval.py`, `memory/conversational_rag.py`) use it. 
 ### Test coverage
 
 `tests/test_citations.py` verifies with mocked chunk data: one chunk with `page` present and one without — both render correctly — plus fallback behavior with no document/page and `_build_sources()` reading `page` from mocked retrieval metadata.
+
+---
+
+## Conversation Quality (Phase 11 Part C)
+
+### Investigation finding: history is truncated by design
+
+History has always been capped to the last **4 user/assistant turns** (8 messages) before the LLM sees it:
+
+- `rag_service.py:HISTORY_TURN_CAP = 4` — applied via `recent_history()` in `rewrite_question()` and `build_messages()`.
+- Every call is **stateless** — the client sends the full `history` list with each `/ask` request (there is no server-side session store; `_append_history()` is effectively dead code in the API layer).
+- This means facts from earlier turns are silently dropped, not just faded: by turn 6+, early-turn context is structurally invisible to the model.
+
+### New endpoint: POST /conversations/summarize
+
+Added `POST /conversations/summarize` (request: `SummarizeRequest { history }`, response: `SummarizeResponse { summary, turn_count, cached }`).
+
+- Uses a **dedicated summarization prompt** in `rag_service.py` (`SUMMARY_SYSTEM_PROMPT`), separate from the RAG answer prompt and involving no retrieval.
+- In-memory LRU+TTL summary cache (`cache.py:SummaryCache`) keyed on `(user, history)` — repeat calls return the cached summary without hitting the LLM.
+- Endpoint is authenticated and rate-limited.
+
+### Compaction fix: summary of older turns instead of hard drop
+
+Instead of silently dropping turns older than the cap, `recent_history()` now optionally condenses them into a single summary block:
+
+- **`condense_history(client, history, max_turns=4)`**: sends the older turns to `summarize_conversation()`, returns `[summary_block] + last 4 turns verbatim`. Returns `None` on failure, so the caller falls back to the hard-drop cap.
+- **`recent_history(history, max_turns=4, client=None)`**: when a client is provided and the history is overdue, condenses instead of dropping. If a summary block is already present, it is preserved and only the verbatim tail is truncated.
+- **Single LLM call per request**: compaction happens once in `prepare_ask()` (before rewrite + answer generation), not duplicated in `rewrite_question()` or `build_messages()`.
+- **`ENABLE_HISTORY_COMPACTION` env var** (default `true`): allows disabling compaction for baseline regression tests. When `false`, falls back to the original hard-drop cap.
+- **Graceful fallback**: if the summarization LLM call fails, the cap falls back to the original hard-drop behavior.
+
+### Baseline degradation test (unit + integration)
+
+- `tests/test_conversation_summary.py` — 16 unit tests covering `summarize_conversation()`, `condense_history()`, `recent_history()` (plain cap, compaction, toggle, summary-preservation), endpoint contract, and a token-savings assertion (compacted context < full raw history while retaining early-turn facts).
+- `tests/test_conversation_quality_integration.py` — opt-in live-server tests (`RUN_LIVE_CONVERSATION_TESTS=1`) against real Groq, no mocks. Runs a 12-turn conversation script with probe questions referencing turn 1, for both baseline (no compaction) and compaction-enabled servers. Asserts: baseline does NOT recall the early-turn token; compaction DOES recall it. Also exercises `/conversations/summarize` live and measures token savings vs full history.
+
+### Cache key note (flag for Maryam/TL)
+
+`_cache_key()` in `main.py` hashes the **raw client-supplied history** — compaction happens server-side and does not change this key. However, two conversations differing only in turns older than `HISTORY_TURN_CAP` will produce **different keys but nearly identical effective context after compaction**. This is documented as a TODO: changing the key formula could improve hit-rate for long conversations but would affect invalidation/collision semantics and needs sign-off.
