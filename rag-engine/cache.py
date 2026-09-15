@@ -199,6 +199,90 @@ class AnswerCache:
 answer_cache = AnswerCache()
 
 
+DEFAULT_SUMMARY_TTL_SECONDS = 3600
+DEFAULT_SUMMARY_MAX_ENTRIES = 200
+SUMMARY_CACHE_KEY_PREFIX = "studymind:summary:"
+
+
+class SummaryCache:
+    """In-memory LRU + TTL cache for conversation summaries (Phase 11 Part C).
+
+    Keyed by (user_id, history) so repeat /conversations/summarize calls do
+    not re-hit the LLM. Deliberately memory-only (like feedback_store): the
+    answer cache already has Redis plumbing, and summaries are per-process
+    ephemeral data. Survives no restarts.
+    """
+
+    def __init__(
+        self,
+        max_entries: int | None = None,
+        ttl_seconds: int | None = None,
+        enabled: bool | None = None,
+    ) -> None:
+        self.max_entries = max_entries or _env_int(
+            "SUMMARY_CACHE_MAX_ENTRIES", DEFAULT_SUMMARY_MAX_ENTRIES
+        )
+        self.ttl_seconds = ttl_seconds or _env_int(
+            "SUMMARY_CACHE_TTL_SECONDS", DEFAULT_SUMMARY_TTL_SECONDS
+        )
+        self.enabled = enabled if enabled is not None else _env_bool(
+            "ENABLE_SUMMARY_CACHE", True
+        )
+        self._store: OrderedDict[str, tuple[float, str]] = OrderedDict()
+        self.hits = 0
+
+    @staticmethod
+    def make_key(user_id: str, history: list[dict] | None) -> str:
+        payload = {
+            "user_id": (user_id or "").strip(),
+            "history": history or [],
+        }
+        normalized = json.dumps(payload, sort_keys=True, ensure_ascii=False)
+        return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+    def get(self, key: str) -> str | None:
+        if not self.enabled:
+            return None
+        item = self._store.get(key)
+        if item is None:
+            return None
+        expires_at, summary = item
+        if time.time() > expires_at:
+            del self._store[key]
+            return None
+        self._store.move_to_end(key)
+        self.hits += 1
+        return summary
+
+    def set(self, key: str, summary: str) -> None:
+        if not self.enabled:
+            return
+        if not summary:
+            return
+        expires_at = time.time() + self.ttl_seconds
+        if key in self._store:
+            del self._store[key]
+        self._store[key] = (expires_at, summary)
+        while len(self._store) > self.max_entries:
+            self._store.popitem(last=False)
+
+    def size(self) -> int:
+        if not self.enabled:
+            return 0
+        now = time.time()
+        expired = [k for k, (exp, _) in self._store.items() if now > exp]
+        for k in expired:
+            del self._store[k]
+        return len(self._store)
+
+    def clear(self) -> None:
+        self._store.clear()
+        self.hits = 0
+
+
+summary_cache = SummaryCache()
+
+
 def ask_result_to_cache_entry(result: Any, include_sources: bool = True) -> CacheEntry:
     """Convert AskResult to CacheEntry."""
     sources = []
