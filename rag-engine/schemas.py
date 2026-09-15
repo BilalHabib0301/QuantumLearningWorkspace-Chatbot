@@ -107,6 +107,24 @@ class FeedbackResponse(BaseModel):
     received: bool = True
 
 
+class SummarizeRequest(BaseModel):
+    history: list[HistoryMessage] = Field(
+        ...,
+        min_length=1,
+        description="Full conversation turns (user/assistant pairs) to summarize",
+    )
+
+
+class SummarizeResponse(BaseModel):
+    summary: str
+    turn_count: int = Field(
+        ..., description="Number of user turns in the summarized history"
+    )
+    cached: bool = Field(
+        default=False, description="True when the summary came from cache (no LLM call)"
+    )
+
+
 class HealthResponse(BaseModel):
     status: str
     ready: bool = True
