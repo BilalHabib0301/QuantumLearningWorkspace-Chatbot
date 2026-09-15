@@ -41,8 +41,9 @@ NON_INFORMATIVE: frozenset[str] = frozenset(
     what whatever when where while who whom whose why will you your yours
     tell say said ask asking know think mean says please ok okay oh yes yeah
     thing things stuff something anything someone somebody
+    explain further go else
     """.split()
-)
+) # Added for clarification heuristic in Phase 11 Part C
 STOPWORDS = STOPWORDS | NON_INFORMATIVE
 
 

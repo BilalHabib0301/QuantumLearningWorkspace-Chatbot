@@ -20,9 +20,12 @@ if str(RAG_ENGINE_DIR) not in sys.path:
     sys.path.insert(0, str(RAG_ENGINE_DIR))
 
 from rag_service import REFUSAL_MESSAGE, ask, create_engine  # noqa: E402
+import time  # noqa: E402
 
 CASES_PATH = Path(__file__).resolve().parent / "cases.json"
 DEFAULT_THRESHOLD = 7
+MAX_RETRIES = 5
+RETRY_DELAY = 10  # seconds, doubles each retry
 
 
 def _contains_any(text: str, needles: list[str] | None) -> bool:
@@ -34,15 +37,28 @@ def _contains_any(text: str, needles: list[str] | None) -> bool:
 
 def evaluate_case(engine, case: dict) -> tuple[bool, str]:
     expect = case.get("expect") or {}
-    result = ask(
-        engine,
-        case["question"],
-        history=case.get("history"),
-        top_k=case.get("top_k"),
-        include_sources=True,
-        rerank=case.get("rerank"),
-        multi_hop=case.get("multi_hop"),
-    )
+    result = None
+    for attempt in range(MAX_RETRIES):
+        try:
+            result = ask(
+                engine,
+                case["question"],
+                history=case.get("history"),
+                top_k=case.get("top_k"),
+                include_sources=True,
+                rerank=case.get("rerank"),
+                multi_hop=case.get("multi_hop"),
+            )
+            break
+        except RuntimeError as e:
+            if "busy" in str(e).lower() or "rate" in str(e).lower():
+                wait = RETRY_DELAY * (2 ** attempt)
+                print(f"  Rate limited on {case.get('id')}, retrying in {wait}s... (attempt {attempt+1}/{MAX_RETRIES})")
+                time.sleep(wait)
+            else:
+                raise
+    if result is None:
+        return False, f"{case.get('id')}: failed after {MAX_RETRIES} retries (rate limit)"
     answer = result.answer or ""
     reasons: list[str] = []
 
@@ -53,6 +69,11 @@ def evaluate_case(engine, case: dict) -> tuple[bool, str]:
     else:
         if result.refused:
             reasons.append("unexpected refusal")
+
+    must_ask_clarification = expect.get("must_ask_clarification")
+    if must_ask_clarification is not None:
+        if result.needed_clarification != must_ask_clarification:
+            reasons.append(f"expected needed_clarification={must_ask_clarification}, got {result.needed_clarification}")
 
     if expect.get("must_contain_any") and not must_refuse:
         if not _contains_any(answer, expect["must_contain_any"]):

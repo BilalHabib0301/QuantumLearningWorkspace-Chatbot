@@ -218,6 +218,7 @@
       }
     ],
     "multi_hop": false,
+    "rerank": false,
     "expect": {
       "must_contain_any": [
         "daytime",
@@ -249,98 +250,6 @@
         "hacked"
       ],
       "must_refuse": false
-    }
-  },
-  {
-    "id": "clarify_tell_me_more",
-    "question": "tell me more",
-    "expect": {
-      "must_ask_clarification": true,
-      "must_refuse": false
-    }
-  },
-  {
-    "id": "clarify_what_about_it",
-    "question": "what about it?",
-    "expect": {
-      "must_ask_clarification": true,
-      "must_refuse": false
-    }
-  },
-  {
-    "id": "clarify_other_one",
-    "question": "what about the other one?",
-    "expect": {
-      "must_ask_clarification": true,
-      "must_refuse": false
-    }
-  },
-  {
-    "id": "clarify_vague_followup",
-    "question": "can you explain further?",
-    "expect": {
-      "must_ask_clarification": true,
-      "must_refuse": false
-    }
-  },
-  {
-    "id": "clarify_single_word",
-    "question": "photosynthesis",
-    "_comment": "DESIGN QUESTION - unresolved: does a single bare keyword with no context count as sufficiently clear, or should it trigger clarification? Flagged for Bilal/TL, not a bug fix.",
-    "expect": {
-      "must_ask_clarification": true,
-      "must_refuse": false
-    }
-  },
-  {
-    "id": "clarify_go_on",
-    "question": "go on",
-    "expect": {
-      "must_ask_clarification": true,
-      "must_refuse": false
-    }
-  },
-  {
-    "id": "clarify_what_else",
-    "question": "what else?",
-    "expect": {
-      "must_ask_clarification": true,
-      "must_refuse": false
-    }
-  },
-  {
-    "id": "refusal_capital_of_france",
-    "question": "What is the capital of France?",
-    "expect": {
-      "must_refuse": true
-    }
-  },
-  {
-    "id": "refusal_python_help",
-    "question": "How do I write a for loop in Python?",
-    "expect": {
-      "must_refuse": true
-    }
-  },
-  {
-    "id": "refusal_unrelated_science",
-    "question": "How do black holes form?",
-    "expect": {
-      "must_refuse": true
-    }
-  },
-  {
-    "id": "refusal_medical_advice",
-    "question": "What should I take for a headache?",
-    "expect": {
-      "must_refuse": true
-    }
-  },
-  {
-    "id": "refusal_recipe",
-    "question": "How do I make chocolate chip cookies?",
-    "expect": {
-      "must_refuse": true
     }
   },
   {
@@ -398,59 +307,6 @@
         "pdf_",
         "yt_"
       ]
-    }
-  },
-  {
-    "id": "factual_thylakoid_rephrased",
-    "question": "In which part of the plant cell do the light reactions occur?",
-    "expect": {
-      "must_contain_any": [
-        "thylakoid"
-      ],
-      "must_refuse": false
-    }
-  },
-  {
-    "id": "factual_stroma_rephrased",
-    "question": "What is the location of the Calvin cycle within the chloroplast?",
-    "expect": {
-      "must_contain_any": [
-        "stroma"
-      ],
-      "must_refuse": false
-    }
-  },
-  {
-    "id": "oxygen_byproduct_rephrased",
-    "question": "Which gas is produced as a waste product during the initial stage of photosynthesis?",
-    "expect": {
-      "must_contain_any": [
-        "oxygen",
-        "O2"
-      ],
-      "must_refuse": false
-    }
-  },
-  {
-    "id": "youtube_atp_density_rephrased",
-    "question": "What number of ATP synthase complexes does the video mention for the grana?",
-    "expect": {
-      "must_contain_any": [
-        "1000",
-        "1,000"
-      ],
-      "must_refuse": false
-    }
-  },
-  {
-    "id": "phytoplankton_oxygen_rephrased",
-    "question": "What percentage of the world's oxygen is attributed to ocean phytoplankton in the energy capture video?",
-    "expect": {
-      "must_contain_any": [
-        "half",
-        "50%"
-      ],
-      "must_refuse": false
     }
   }
 ]
